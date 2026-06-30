@@ -35,8 +35,8 @@ git branch -M main 2>$null; if (-not $?) {}   # tolerate "already on main"
 git remote remove origin 2>$null; if (-not $?) {}
 git remote add origin https://github.com/adivish31/codebase_analyzer.git
 
-git config user.name  "Aditya"
-git config user.email "risingvibes01@gmail.com"
+git config user.name  "adivish2831"
+git config user.email "btech10857.23@bitmesra.ac.in"
 
 # ---------------------------------------------------------------------------
 # Helper: commit with a specific author/committer date

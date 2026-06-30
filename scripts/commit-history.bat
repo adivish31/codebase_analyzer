@@ -17,8 +17,8 @@ git init
 git branch -M main
 git remote remove origin 2>nul
 git remote add origin https://github.com/adivish31/codebase_analyzer.git
-git config user.name "Aditya"
-git config user.email "risingvibes01@gmail.com"
+git config user.name "adivish2831"
+git config user.email "btech10857.23@bitmesra.ac.in"
 
 echo.
 echo === Part 0: scaffold + docs ===
