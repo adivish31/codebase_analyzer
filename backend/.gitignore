@@ -2,3 +2,9 @@ node_modules/
 .env
 data/
 *.log
+
+# SQLite databases (RepoWiki DB + CodeGraph DB) and WAL sidecar files
+*.db
+*.db-shm
+*.db-wal
+*.sqlite

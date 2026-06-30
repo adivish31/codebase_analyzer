@@ -9,6 +9,8 @@ import { ingestSource } from '../services/ingestion.js';
 import { parseDocuments } from '../services/parser.js';
 import { chunkDocuments } from '../services/chunker.js';
 import { embedTexts } from '../services/embeddings/index.js';
+import { buildCodeGraph } from '../services/codeGraph.js';
+import { generateRepoWiki } from '../services/repoWiki.js';
 
 const router = Router();
 
@@ -16,7 +18,9 @@ const router = Router();
  * POST /api/ingest
  * Body: { "source": "<github url>" }  OR  { "path": "<local folder>" }
  *
- * Runs the full indexing pipeline: ingest -> parse -> chunk -> embed -> store.
+ * Full indexing pipeline:
+ *   ingest -> parse -> [reset] -> build code graph -> chunk -> embed -> store (memory + RepoWiki DB)
+ *   -> generate repo wiki -> persist meta.
  * Replaces any previously-ingested codebase.
  */
 router.post(
@@ -27,40 +31,59 @@ router.post(
       throw new ApiError(400, 'Provide `source` (GitHub URL) or `path` (local folder).');
     }
 
+    const startedAt = Date.now();
+
     // 1. Ingest raw files
     const { documents, meta } = await ingestSource(source);
 
-    // 2. Parse (language detection + light structure)
+    // 2. Parse (language detection + structured symbols)
     const parsed = parseDocuments(documents);
 
-    // 3. Chunk into retrievable pieces
+    // 3. Fresh index (clears in-memory store + both SQLite DBs)
+    resetIndex();
+
+    // 4. Build the code graph (files, symbols, import edges) -> CodeGraph DB
+    const { symbolCount, edgeCount } = buildCodeGraph(parsed);
+
+    // 5. Chunk into retrievable pieces
     const chunks = chunkDocuments(parsed);
 
-    // 4. Embed every chunk's text into a vector
+    // 6. Embed every chunk
     const vectors = await embedTexts(chunks.map((c) => c.text));
 
-    // 5. Store in a fresh vector index
-    resetIndex();
-    chunks.forEach((chunk, i) => {
-      appState.vectorStore.add({
-        id: chunk.id,
-        vector: vectors[i],
-        metadata: {
-          relPath: chunk.relPath,
-          language: chunk.language,
-          startLine: chunk.startLine,
-          endLine: chunk.endLine,
-          text: chunk.text,
-        },
-      });
-    });
+    // 7. Store chunks in the in-memory index AND persist them (with vectors) to RepoWiki DB
+    const records = chunks.map((chunk, i) => ({
+      id: chunk.id,
+      vector: vectors[i],
+      metadata: {
+        relPath: chunk.relPath,
+        language: chunk.language,
+        startLine: chunk.startLine,
+        endLine: chunk.endLine,
+        text: chunk.text,
+      },
+    }));
+    for (const rec of records) appState.vectorStore.add(rec);
+    appState.repoWiki.insertChunks(records);
+    appState.repoWiki.insertFiles(parsed);
 
+    // 8. Curate per-file wiki summaries -> RepoWiki DB
+    const wiki = await generateRepoWiki(parsed);
+
+    // 9. Persist codebase metadata
     appState.codebase = {
       ...meta,
       chunkCount: chunks.length,
+      symbolCount,
+      edgeCount,
+      wikiCount: wiki.count,
+      durationMs: Date.now() - startedAt,
     };
+    appState.repoWiki.saveMeta(appState.codebase);
 
-    logger.info(`Indexed ${chunks.length} chunks from ${meta.fileCount} files.`);
+    logger.info(
+      `Indexed ${chunks.length} chunks, ${symbolCount} symbols, ${edgeCount} edges from ${meta.fileCount} files in ${appState.codebase.durationMs}ms.`
+    );
 
     res.json({
       message: 'Codebase ingested and indexed.',

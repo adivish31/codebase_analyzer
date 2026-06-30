@@ -13,16 +13,22 @@ import { fileURLToPath } from 'node:url';
 
 import { config } from './config.js';
 import { logger } from './logger.js';
+import { initState } from './state.js';
 import { notFound, errorHandler } from './middleware/errorHandler.js';
 
 import healthRoutes from './routes/health.js';
 import ingestRoutes from './routes/ingest.js';
 import askRoutes from './routes/ask.js';
 import filesRoutes from './routes/files.js';
+import graphRoutes from './routes/graph.js';
+import wikiRoutes from './routes/wiki.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export async function createApp() {
+  // Open the SQLite stores (and reload any persisted index) before serving requests.
+  await initState();
+
   const app = express();
 
   // --- Core middleware ---
@@ -43,6 +49,8 @@ export async function createApp() {
   app.use('/api', ingestRoutes);
   app.use('/api', askRoutes);
   app.use('/api', filesRoutes);
+  app.use('/api', graphRoutes);
+  app.use('/api', wikiRoutes);
 
   // Diagram route is the teammate's part — mount it ONLY if the file exists, so this backend
   // runs standalone and her route auto-activates once added. (See SHARE_WITH_TEAMMATE.md)

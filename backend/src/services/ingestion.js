@@ -18,6 +18,7 @@ import { promisify } from 'node:util';
 
 import { logger } from '../logger.js';
 import { ApiError } from '../middleware/errorHandler.js';
+import { config } from '../config.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -49,14 +50,26 @@ function looksLikeUrl(source) {
   return /^https?:\/\//i.test(source) || /^git@/.test(source);
 }
 
-/** Shallow-clone a public git repo into a temp directory and return that directory. */
+/**
+ * Inject a GitHub token into an https GitHub URL for private-repo cloning.
+ * Returns the original URL unchanged when no token is set or the host isn't github.com.
+ */
+function withAuth(url) {
+  if (!config.githubToken) return url;
+  if (!/^https:\/\/github\.com\//i.test(url)) return url;
+  return url.replace(/^https:\/\//i, `https://${config.githubToken}@`);
+}
+
+/** Shallow-clone a git repo (public, or private with GITHUB_TOKEN) into a temp dir. */
 async function cloneRepo(url) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cka-'));
-  logger.info(`Cloning ${url} -> ${dir}`);
+  logger.info(`Cloning ${url} -> ${dir}`); // log the ORIGINAL url, never the tokenized one
   try {
-    await execFileAsync('git', ['clone', '--depth', '1', url, dir], { timeout: 120000 });
+    await execFileAsync('git', ['clone', '--depth', '1', withAuth(url), dir], { timeout: 120000 });
   } catch (err) {
-    throw new ApiError(400, `Failed to clone repository: ${err.message.split('\n')[0]}`);
+    // Strip any token that may appear in git's error output before surfacing it.
+    const safe = err.message.split('\n')[0].replace(/https:\/\/[^@\s]+@/g, 'https://');
+    throw new ApiError(400, `Failed to clone repository: ${safe}`);
   }
   return { dir, isTemp: true };
 }
