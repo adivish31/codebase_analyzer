@@ -25,6 +25,13 @@ export const api = {
     return request(`/api/diagram?${q.toString()}`);
   },
   files: () => request('/api/files'),
+  // CodeGraph + RepoWiki
+  graph: (limit) => request(`/api/graph${limit ? `?limit=${limit}` : ''}`),
+  symbols: (name, exact = false) =>
+    request(`/api/symbols?name=${encodeURIComponent(name)}${exact ? '&exact=true' : ''}`),
+  fileDetail: (relPath) => request(`/api/file?relPath=${encodeURIComponent(relPath)}`),
+  wiki: () => request('/api/wiki'),
+  wikiFile: (relPath) => request(`/api/wiki/file?relPath=${encodeURIComponent(relPath)}`),
 };
 
 export default api;

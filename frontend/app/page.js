@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import RepoInput from '../components/RepoInput';
 import Chat from '../components/Chat';
 import DiagramViewer from '../components/DiagramViewer';
+import CodeMap from '../components/CodeMap';
 import { api } from '../lib/api';
 
 export default function Home() {
@@ -18,6 +19,7 @@ export default function Home() {
       <RepoInput onIngested={() => setIndexed(true)} />
       <Chat enabled={indexed} />
       <DiagramViewer enabled={indexed} />
+      <CodeMap enabled={indexed} />
     </>
   );
 }
