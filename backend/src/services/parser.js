@@ -27,27 +27,51 @@ const EXT_TO_LANGUAGE = {
   '.sql': 'sql', '.graphql': 'graphql', '.proto': 'protobuf',
 };
 
-/** Regexes that capture declared symbol names across common languages. */
+/** Regexes that capture declared symbols across common languages, tagged with a `kind`. */
 const SYMBOL_PATTERNS = [
-  /\bfunction\s+([A-Za-z_$][\w$]*)/g,          // function foo
-  /\bclass\s+([A-Za-z_$][\w$]*)/g,             // class Foo
-  /\bdef\s+([A-Za-z_][\w]*)/g,                 // def foo (python/ruby)
-  /\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?\(/g, // const foo = (
-  /\bfunc\s+([A-Za-z_][\w]*)/g,                // func Foo (go)
-  /\b(?:public|private|protected)\s+\w+\s+([A-Za-z_][\w]*)\s*\(/g,    // java/c# methods
+  { kind: 'function', re: /\bfunction\s+([A-Za-z_$][\w$]*)/g },            // function foo
+  { kind: 'class', re: /\bclass\s+([A-Za-z_$][\w$]*)/g },                  // class Foo
+  { kind: 'function', re: /\bdef\s+([A-Za-z_][\w]*)/g },                   // def foo (python/ruby)
+  { kind: 'function', re: /\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?\(/g }, // const foo = (
+  { kind: 'function', re: /\bfunc\s+([A-Za-z_][\w]*)/g },                  // func Foo (go)
+  { kind: 'function', re: /\bfn\s+([A-Za-z_][\w]*)/g },                    // fn foo (rust)
+  { kind: 'method', re: /\b(?:public|private|protected)\s+\w[\w<>]*\s+([A-Za-z_][\w]*)\s*\(/g }, // java/c# methods
 ];
 
-/** Extract a de-duplicated list of symbol names from source text. */
-export function extractSymbols(content) {
-  const found = new Set();
-  for (const re of SYMBOL_PATTERNS) {
+/** Compute the 1-based line number of a character offset. */
+function lineOf(content, index) {
+  let line = 1;
+  for (let i = 0; i < index && i < content.length; i++) {
+    if (content.charCodeAt(i) === 10) line++;
+  }
+  return line;
+}
+
+/**
+ * Extract structured symbols from source text.
+ * @returns {Array<{ name: string, kind: string, line: number }>}
+ */
+export function extractStructuredSymbols(content) {
+  const seen = new Set();
+  const out = [];
+  for (const { kind, re } of SYMBOL_PATTERNS) {
     re.lastIndex = 0;
     let m;
     while ((m = re.exec(content)) !== null) {
-      if (m[1]) found.add(m[1]);
+      const name = m[1];
+      if (!name) continue;
+      const key = `${name}@${m.index}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({ name, kind, line: lineOf(content, m.index) });
     }
   }
-  return [...found];
+  return out;
+}
+
+/** Extract a de-duplicated list of symbol names from source text (back-compat helper). */
+export function extractSymbols(content) {
+  return [...new Set(extractStructuredSymbols(content).map((s) => s.name))];
 }
 
 export function detectLanguage(ext) {
@@ -60,12 +84,16 @@ export function detectLanguage(ext) {
  * @returns {Array<{...document, language, symbols, lineCount}>}
  */
 export function parseDocuments(documents) {
-  return documents.map((doc) => ({
-    ...doc,
-    language: detectLanguage(doc.ext),
-    symbols: extractSymbols(doc.content),
-    lineCount: doc.content.split('\n').length,
-  }));
+  return documents.map((doc) => {
+    const structuredSymbols = extractStructuredSymbols(doc.content);
+    return {
+      ...doc,
+      language: detectLanguage(doc.ext),
+      structuredSymbols,
+      symbols: [...new Set(structuredSymbols.map((s) => s.name))],
+      lineCount: doc.content.split('\n').length,
+    };
+  });
 }
 
 export default parseDocuments;
