@@ -10,28 +10,57 @@ with grounded explanations and Mermaid diagrams.
 
 ## What it does
 
-1. **Ingest** a GitHub repo or local folder → reads source files.
-2. **Parse + chunk** each file into retrievable pieces with metadata.
-3. **Embed** chunks into vectors and store them in a vector index.
-4. **Ask** a question → retrieve the most relevant chunks → an LLM explains the answer, grounded in
-   real code, citing the files it used. (Retrieval-Augmented Generation, "RAG".)
-5. **Diagram** the flow → generate Mermaid diagrams of architecture / dependencies.
+1. **Ingest** a GitHub repo (public or private) or local folder → reads source files.
+2. **Parse + chunk** each file into retrievable pieces; extract structured symbols (functions,
+   classes, methods) with line numbers.
+3. **Build relationships** → a **CodeGraph DB** (SQLite) of files, symbols, and import edges.
+4. **Embed + curate** → chunks go into a vector index + **RepoWiki DB** (SQLite) with per-file
+   summary cards. Both databases persist, so the index survives restarts.
+5. **Ask** a question → **hybrid retrieval** (semantic vectors + keyword/symbol/path matching) →
+   an LLM explains the answer, grounded in real code, citing files and the symbols involved.
+6. **Find** structurally → "Where is `processPayment` defined?", "What imports this file?"
+7. **Diagram** the flow → Mermaid architecture / dependency diagrams + a JSON code graph.
 
 ## Architecture (high level)
 
 ```
-Next.js frontend  ──HTTP──>  Express backend  ──>  Ingestion → Parser → Chunker
-   (chat + diagrams)                                      │
-                                                          ▼
-                                          Embeddings ──> Vector Store
-                                                          │
-                                          Question ──> RAG engine ──> LLM provider
-                                                          │
-                                                          ▼
-                                                    Answer + sources + diagram
+Next.js frontend ──HTTP──> Express backend
+(chat · diagrams ·                 │
+ code map · wiki)                  ▼
+                       Ingestion → Parser (symbols) ──┬─────────────► CodeGraph DB (SQLite)
+                                                       │               files · symbols · edges
+                                                       ▼
+                                     Chunker → Embeddings → Vector Store (in-memory)
+                                                       │                     │
+                                                       ▼                     │
+                                               RepoWiki DB (SQLite) ◄────────┘
+                                               chunks+vectors · wiki · meta
+                                                       │
+                          Question ─► Hybrid RAG (vectors + symbols) ─► LLM provider
+                                                       │
+                                                       ▼
+                                  Answer + sources + symbol hints + diagrams
 ```
 
-Full detail: [`docs/architecture/01-system-overview.md`](docs/architecture/01-system-overview.md).
+Full detail: [`docs/architecture/01-system-overview.md`](docs/architecture/01-system-overview.md)
+and [`docs/architecture/04-codegraph-and-persistence.md`](docs/architecture/04-codegraph-and-persistence.md).
+
+## API endpoints
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| `GET` | `/api/health` | Liveness + provider/persistence/index status |
+| `GET` | `/api/status` | Whether a codebase is indexed |
+| `POST` | `/api/ingest` | Index a repo: `{ "source": "<url>" }` or `{ "path": "<folder>" }` |
+| `POST` | `/api/ask` | Hybrid-RAG answer: `{ "question": "..." }` → answer + sources + symbols |
+| `GET` | `/api/files` | Indexed files with chunk counts |
+| `GET` | `/api/symbols?name=X` | Where a symbol is defined |
+| `GET` | `/api/graph` | File dependency graph (nodes + edges) |
+| `GET` | `/api/file?relPath=Y` | One file's symbols, dependencies, dependents, wiki |
+| `GET` | `/api/wiki` | All per-file summary cards |
+| `GET` | `/api/diagram?type=...` | Mermaid architecture/dependency diagram |
+
+Environment variables: [`docs/ENVIRONMENT.md`](docs/ENVIRONMENT.md).
 
 ## Repository layout
 
@@ -77,6 +106,8 @@ curl -X POST http://localhost:4000/api/ask \
 ## Tech stack
 
 - **Backend:** Node.js, Express
+- **Persistence:** SQLite via Node's built-in `node:sqlite` (zero external deps) — RepoWiki DB + CodeGraph DB
 - **Frontend:** Next.js (React)
-- **AI:** provider-agnostic embeddings + LLM interfaces (mock provider included; real one added later)
+- **AI:** provider-agnostic embeddings + LLM interfaces (mock, OpenAI, Anthropic)
+- **Retrieval:** in-memory cosine vector search + hybrid keyword/symbol re-ranking
 - **Diagrams:** Mermaid

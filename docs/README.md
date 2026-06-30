@@ -9,6 +9,11 @@ section.
 - [01 — System overview](architecture/01-system-overview.md) — components, responsibilities, data flow.
 - [02 — Request lifecycle](architecture/02-request-lifecycle.md) — what happens on ingest and on ask.
 - [03 — Design decisions & trade-offs](architecture/03-design-decisions.md) — why each choice was made.
+- [04 — CodeGraph, RepoWiki & persistence](architecture/04-codegraph-and-persistence.md) — the two SQLite DBs, hybrid retrieval, restart reload.
+
+## Configuration
+
+- [Environment variables reference](ENVIRONMENT.md) — every var, defaults, and per-mode requirements.
 
 ## Concept deep-dives (technical rounds)
 

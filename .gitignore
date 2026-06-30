@@ -26,6 +26,12 @@ data/
 *.index.json
 .cache/
 
+# SQLite databases (RepoWiki DB + CodeGraph DB) and WAL sidecar files
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+
 # OS / editor
 .DS_Store
 Thumbs.db
