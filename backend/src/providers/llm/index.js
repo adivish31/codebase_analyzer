@@ -12,11 +12,13 @@ import { logger } from '../../logger.js';
 import mockProvider from './mockProvider.js';
 import openaiProvider from './openaiProvider.js';
 import anthropicProvider from './anthropicProvider.js';
+import geminiProvider from './geminiProvider.js';
 
 function selectProvider() {
   switch (config.ai.provider) {
     case 'openai':    return openaiProvider;
     case 'anthropic': return anthropicProvider;
+    case 'gemini':    return geminiProvider;
     case 'mock':
     default:
       return mockProvider;

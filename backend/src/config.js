@@ -36,10 +36,11 @@ export const config = {
   corsOrigins: list('CORS_ORIGINS', ['http://localhost:3000']),
 
   ai: {
-    // "mock" | "openai" | "anthropic". Defaults to mock so the app runs with zero keys.
+    // "mock" | "openai" | "anthropic" | "gemini". Defaults to mock so the app runs with zero keys.
     provider: process.env.AI_PROVIDER || 'mock',
     openaiApiKey: process.env.OPENAI_API_KEY || '',
     anthropicApiKey: process.env.ANTHROPIC_API_KEY || '',
+    geminiApiKey: process.env.GEMINI_API_KEY || '',
   },
 
   // Optional token for cloning PRIVATE GitHub repos (public repos need nothing).

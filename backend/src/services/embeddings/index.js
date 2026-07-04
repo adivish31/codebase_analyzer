@@ -14,12 +14,18 @@ import { config } from '../../config.js';
 import { logger } from '../../logger.js';
 import mockProvider from './mockProvider.js';
 import openaiProvider from './openaiProvider.js';
+import geminiProvider from './geminiProvider.js';
 
 function selectProvider() {
   switch (config.ai.provider) {
     case 'openai':    return openaiProvider;
-    // case 'anthropic': anthropic doesn't offer a standalone embeddings API;
-    //                   use openai embeddings + anthropic LLM if preferred.
+    case 'gemini':    return geminiProvider;
+    case 'anthropic':
+      // Anthropic has no standalone embeddings API. Pair Claude (chat) with OpenAI embeddings
+      // when a key is available — as documented in .env.example — otherwise fall back to mock.
+      if (config.ai.openaiApiKey) return openaiProvider;
+      logger.warn('AI_PROVIDER=anthropic without OPENAI_API_KEY — falling back to mock embeddings.');
+      return mockProvider;
     case 'mock':
     default:
       return mockProvider;
