@@ -36,11 +36,14 @@ export const config = {
   corsOrigins: list('CORS_ORIGINS', ['http://localhost:3000']),
 
   ai: {
-    // "mock" | "openai" | "anthropic" | "gemini". Defaults to mock so the app runs with zero keys.
+    // "mock" | "openai" | "anthropic" | "gemini" | "groq". Defaults to mock (zero keys needed).
     provider: process.env.AI_PROVIDER || 'mock',
     openaiApiKey: process.env.OPENAI_API_KEY || '',
     anthropicApiKey: process.env.ANTHROPIC_API_KEY || '',
     geminiApiKey: process.env.GEMINI_API_KEY || '',
+    groqApiKey: process.env.GROQ_API_KEY || '',
+    // llama-3.3-70b-versatile | moonshotai/kimi-k2-instruct-0905 | openai/gpt-oss-120b
+    groqModel: process.env.GROQ_MODEL || 'llama-3.3-70b-versatile',
   },
 
   // Optional token for cloning PRIVATE GitHub repos (public repos need nothing).

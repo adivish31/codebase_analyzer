@@ -26,6 +26,13 @@ function selectProvider() {
       if (config.ai.openaiApiKey) return openaiProvider;
       logger.warn('AI_PROVIDER=anthropic without OPENAI_API_KEY — falling back to mock embeddings.');
       return mockProvider;
+    case 'groq':
+      // Groq has no embeddings API either. Prefer Gemini, then OpenAI, else mock — so a single
+      // GROQ_API_KEY still gives real streamed answers over (lexical) mock retrieval.
+      if (config.ai.geminiApiKey) return geminiProvider;
+      if (config.ai.openaiApiKey) return openaiProvider;
+      logger.warn('AI_PROVIDER=groq without GEMINI/OPENAI key — falling back to mock embeddings.');
+      return mockProvider;
     case 'mock':
     default:
       return mockProvider;
