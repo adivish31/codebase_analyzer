@@ -16,7 +16,7 @@ const DIM = 768; // good quality/size trade-off; smaller vectors keep the DB + m
 // The API allows 100 requests per batch call, but the free tier caps tokens-per-minute; smaller
 // batches + retry/backoff (below) keep large ingests flowing instead of failing on 429.
 const BATCH_SIZE = 25;
-const MAX_RETRIES = 5;
+const MAX_RETRIES = 8;
 const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:batchEmbedContents`;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -67,7 +67,9 @@ async function callGemini(inputs) {
     if (!retryable || attempt >= MAX_RETRIES) {
       throw new Error(`Gemini embeddings error ${res.status}: ${err?.error?.message || res.statusText}`);
     }
-    const delay = suggestedDelayMs(err) ?? Math.min(2000 * 2 ** attempt, 60000);
+    // The API's suggested delay can be optimistic for per-minute token quotas — take the larger
+    // of the suggestion and our exponential backoff so waits never shrink between attempts.
+    const delay = Math.max(suggestedDelayMs(err) ?? 0, Math.min(2000 * 2 ** attempt, 60000));
     logger.warn(`Gemini embeddings ${res.status}; retrying in ${Math.round(delay / 1000)}s (attempt ${attempt + 1}/${MAX_RETRIES}).`);
     await sleep(delay);
   }

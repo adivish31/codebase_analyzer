@@ -16,6 +16,7 @@
 import { config } from './config.js';
 import { logger } from './logger.js';
 import { VectorStore } from './services/vectorStore.js';
+import { embeddingProvider } from './services/embeddings/index.js';
 import { openStores } from './db/index.js';
 
 export const appState = {
@@ -50,6 +51,13 @@ export async function initState() {
       logger.info(
         `Reloaded persisted index: ${records.length} chunks from ${meta.fileCount} files (${meta.source}).`
       );
+      // Vectors from one embedding provider are meaningless to another's query embeddings.
+      if (meta.embedding && meta.embedding.provider !== embeddingProvider.name) {
+        logger.warn(
+          `Index was embedded with "${meta.embedding.provider}" but the active provider is ` +
+            `"${embeddingProvider.name}" — retrieval will be poor. Re-run /api/ingest.`
+        );
+      }
     } else {
       logger.info('Persistence on; no prior index found — waiting for /api/ingest.');
     }

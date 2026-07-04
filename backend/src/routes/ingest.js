@@ -8,7 +8,7 @@ import { appState, resetIndex } from '../state.js';
 import { ingestSource } from '../services/ingestion.js';
 import { parseDocuments } from '../services/parser.js';
 import { chunkDocuments } from '../services/chunker.js';
-import { embedTexts } from '../services/embeddings/index.js';
+import { embedTexts, embeddingProvider } from '../services/embeddings/index.js';
 import { buildCodeGraph } from '../services/codeGraph.js';
 import { generateRepoWiki } from '../services/repoWiki.js';
 
@@ -70,13 +70,16 @@ router.post(
     // 8. Curate per-file wiki summaries -> RepoWiki DB
     const wiki = await generateRepoWiki(parsed);
 
-    // 9. Persist codebase metadata
+    // 9. Persist codebase metadata (including WHICH embedding provider produced the vectors —
+    //    a query embedded by a different provider lives in a different vector space, so the
+    //    startup reload warns when the active provider no longer matches the index).
     appState.codebase = {
       ...meta,
       chunkCount: chunks.length,
       symbolCount,
       edgeCount,
       wikiCount: wiki.count,
+      embedding: { provider: embeddingProvider.name, dim: embeddingProvider.dim },
       durationMs: Date.now() - startedAt,
     };
     await appState.repoWiki.saveMeta(appState.codebase);
