@@ -26,13 +26,15 @@ real model. The only frontend var (`NEXT_PUBLIC_API_BASE`) defaults to `http://l
 ### AI provider
 | Variable | Default | Required? | Description |
 |----------|---------|-----------|-------------|
-| `AI_PROVIDER` | `mock` | No | `mock` \| `openai` \| `anthropic`. Selects embeddings + LLM implementation. |
+| `AI_PROVIDER` | `mock` | No | `mock` \| `openai` \| `anthropic` \| `gemini`. Selects embeddings + LLM implementation. |
 | `OPENAI_API_KEY` | — | **Required if** `AI_PROVIDER=openai` (and for real embeddings under `anthropic`) | OpenAI key. Used for `text-embedding-3-small` + `gpt-4o-mini`. |
 | `ANTHROPIC_API_KEY` | — | **Required if** `AI_PROVIDER=anthropic` | Anthropic key. Used for `claude-haiku-4-5` chat. |
+| `GEMINI_API_KEY` | — | **Required if** `AI_PROVIDER=gemini` | Google Gemini key. Used for `gemini-2.5-flash` chat + `gemini-embedding-001` embeddings (768-dim, normalised client-side). Rate limits (429) are retried with backoff, so free-tier keys work for full ingests — they're just slower. |
 
 > **Note on `anthropic` mode:** Anthropic has no embeddings API. Set `AI_PROVIDER=anthropic` for
 > chat, but also provide `OPENAI_API_KEY` if you want real semantic embeddings — otherwise
-> embeddings fall back to mock. The simplest single-key real setup is `AI_PROVIDER=openai`.
+> embeddings fall back to mock. The simplest single-key real setups are `AI_PROVIDER=openai`
+> or `AI_PROVIDER=gemini` (one key covers both chat and embeddings).
 
 ### GitHub (optional)
 | Variable | Default | Required? | Description |
@@ -42,8 +44,9 @@ real model. The only frontend var (`NEXT_PUBLIC_API_BASE`) defaults to `http://l
 ### Persistence (RepoWiki DB + CodeGraph DB)
 | Variable | Default | Required? | Description |
 |----------|---------|-----------|-------------|
-| `PERSIST` | `true` | No | `true` → SQLite DBs written to `DATA_DIR`, index reloads on restart. `false` → in-memory SQLite (nothing survives restart). |
-| `DATA_DIR` | `./data` | No | Directory for `repowiki.db` and `codegraph.db` (relative to the backend's working dir). |
+| `PERSIST` | `true` | No | `true` → data survives restarts (driver below), index reloads on startup. `false` → in-memory SQLite (nothing survives restart). |
+| `DATABASE_URL` | — | No | Managed Postgres connection string (Supabase/Neon/RDS…). When set (and `PERSIST=true`), both DBs live in Postgres instead of local SQLite files — so the index also survives **redeploys** and can be shared by multiple instances. `/api/health` reports the active driver. |
+| `DATA_DIR` | `./data` | No | Directory for `repowiki.db` and `codegraph.db` when using the SQLite driver. |
 
 ### Embedding / chunking / retrieval tuning
 | Variable | Default | Required? | Description |
@@ -65,6 +68,14 @@ real model. The only frontend var (`NEXT_PUBLIC_API_BASE`) defaults to `http://l
 | Variable | Default | Required? | Description |
 |----------|---------|-----------|-------------|
 | `GRAPH_MAX_NODES` | `300` | No | Max file nodes returned by `GET /api/graph`. |
+
+### Security / hardening
+| Variable | Default | Required? | Description |
+|----------|---------|-----------|-------------|
+| `TRUST_PROXY` | `false` | No | Set `true` behind a reverse proxy / load balancer so rate limiting sees real client IPs (`X-Forwarded-For`). |
+| `ALLOW_LOCAL_INGEST` | `true` in dev, `false` in production | No | Allow `POST /api/ingest` with a local folder path (reads the **server's** filesystem). Keep off on hosted instances; git URLs are always allowed. |
+| `ASK_RATE_LIMIT` | `30` | No | Max `/api/ask` requests per IP per minute. |
+| `INGEST_RATE_LIMIT` | `5` | No | Max `/api/ingest` requests per IP per 10 minutes. |
 
 ---
 
@@ -109,13 +120,18 @@ OPENAI_API_KEY=sk-...
 GITHUB_TOKEN=ghp_...    # PAT with repo scope
 ```
 
-### 5. Production / stateless workers
+### 5. Production (managed Postgres + Gemini)
 ```bash
-PERSIST=false           # if using an external store, or for ephemeral instances
+NODE_ENV=production
+AI_PROVIDER=gemini
+GEMINI_API_KEY=...                       # one key: chat + embeddings
+DATABASE_URL=postgresql://user:pass@host:5432/db   # Supabase/Neon/RDS
+PERSIST=true
 CORS_ORIGINS=https://your-frontend.vercel.app
-AI_PROVIDER=openai
-OPENAI_API_KEY=sk-...
+TRUST_PROXY=true                         # behind a load balancer
+# ALLOW_LOCAL_INGEST defaults to false in production — git URLs only
 ```
+The index survives restarts *and* redeploys (it lives in Postgres, not on the instance's disk).
 
 ---
 

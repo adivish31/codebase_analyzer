@@ -5,8 +5,9 @@ code flows. Point it at a repository; it ingests the code, indexes it for semant
 answers natural-language questions ("How does authentication work?", "What calls `processPayment`?")
 with grounded explanations and Mermaid diagrams.
 
-> Status: scaffold + working pipeline with a **mock AI provider**. Swap in a real LLM/embeddings
-> provider (OpenAI, Anthropic, local, …) by editing one file — see `docs/concepts/06-llm-provider-abstraction.md`.
+> Status: **working end-to-end with real AI** (Google Gemini by default when a key is set) and
+> production persistence (managed Postgres via `DATABASE_URL`, or local SQLite). A mock provider
+> still lets everything run with zero API keys — see `docs/concepts/06-llm-provider-abstraction.md`.
 
 ## What it does
 
@@ -84,9 +85,10 @@ This is a two-person project. See `SHARE_WITH_TEAMMATE.md` for the full split.
 
 ```bash
 cd backend
-cp .env.example .env
+cp .env.example .env       # runs with mock AI by default; add GEMINI_API_KEY + AI_PROVIDER=gemini for real AI
 npm install
 npm run dev        # starts the API on http://localhost:4000
+npm test           # 31 unit + API integration tests (node --test, no extra deps)
 ```
 
 Then try the pipeline with the mock provider:
@@ -105,9 +107,18 @@ curl -X POST http://localhost:4000/api/ask \
 
 ## Tech stack
 
-- **Backend:** Node.js, Express
-- **Persistence:** SQLite via Node's built-in `node:sqlite` (zero external deps) — RepoWiki DB + CodeGraph DB
+- **Backend:** Node.js, Express (helmet, per-IP rate limiting, graceful shutdown)
+- **Persistence (swappable driver):** managed **Postgres** when `DATABASE_URL` is set (Supabase/Neon/RDS — survives redeploys), otherwise SQLite via Node's built-in `node:sqlite` — RepoWiki DB + CodeGraph DB either way
 - **Frontend:** Next.js (React)
-- **AI:** provider-agnostic embeddings + LLM interfaces (mock, OpenAI, Anthropic)
+- **AI:** provider-agnostic embeddings + LLM interfaces — **Gemini** (`gemini-2.5-flash` + `gemini-embedding-001`, with 429 retry/backoff), OpenAI, Anthropic, or mock (zero keys)
 - **Retrieval:** in-memory cosine vector search + hybrid keyword/symbol re-ranking
 - **Diagrams:** Mermaid
+- **Tests:** `node --test` — unit + API integration (31 tests)
+
+## Production notes
+
+- Set `NODE_ENV=production`: local-path ingestion is disabled (git URLs only) and rate limits apply
+  per client IP (`ASK_RATE_LIMIT`, `INGEST_RATE_LIMIT`; set `TRUST_PROXY=true` behind a proxy).
+- Point `DATABASE_URL` at a managed Postgres to keep the index across restarts **and** redeploys;
+  `GET /api/health` reports the active persistence driver.
+- Full variable reference: [`docs/ENVIRONMENT.md`](docs/ENVIRONMENT.md).
