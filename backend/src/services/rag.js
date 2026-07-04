@@ -115,7 +115,7 @@ export async function answerQuestion(question, opts = {}) {
   const symbolHints = [];
   const seen = new Set();
   for (const kw of keywords) {
-    for (const s of findSymbol(kw, { limit: 5 })) {
+    for (const s of await findSymbol(kw, { limit: 5 })) {
       const key = `${s.name}@${s.relPath}:${s.line}`;
       if (!seen.has(key)) {
         seen.add(key);

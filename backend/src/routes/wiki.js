@@ -23,7 +23,7 @@ router.get(
   '/wiki',
   asyncHandler(async (req, res) => {
     ensureIndexed();
-    const files = listWiki();
+    const files = await listWiki();
     res.json({ count: files.length, files });
   })
 );
@@ -34,7 +34,7 @@ router.get(
     ensureIndexed();
     const relPath = (req.query.relPath || '').trim();
     if (!relPath) throw new ApiError(400, 'Provide `relPath` query param.');
-    const entry = getWiki(relPath);
+    const entry = await getWiki(relPath);
     if (!entry) throw new ApiError(404, `No wiki entry for ${relPath}.`);
     res.json(entry);
   })

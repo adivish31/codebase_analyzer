@@ -7,6 +7,10 @@
  *   - edges   : file -> file import relationships for "what depends on / imports Y?"
  *
  * Queried directly (not via embeddings) to answer structural questions precisely.
+ *
+ * NOTE: every method is async even though node:sqlite is synchronous — the Postgres store
+ * (db/pgCodeGraphStore.js) implements the exact same interface, so callers never know which
+ * driver is behind it.
  */
 import { openDatabase } from './sqlite.js';
 
@@ -44,19 +48,24 @@ export class CodeGraphStore {
     return new CodeGraphStore(db);
   }
 
-  reset() {
+  async reset() {
     this.db.exec('DELETE FROM files; DELETE FROM symbols; DELETE FROM edges;');
   }
 
+  /** Close the underlying connection (graceful shutdown). */
+  async close() {
+    this.db.close();
+  }
+
   // --- writes (bulk, transactional) ----------------------------------------
-  insertFiles(files) {
+  async insertFiles(files) {
     const stmt = this.db.prepare('INSERT OR REPLACE INTO files (rel_path, language) VALUES (?, ?)');
     this.#tx(() => {
       for (const f of files) stmt.run(f.relPath, f.language);
     });
   }
 
-  insertSymbols(symbols) {
+  async insertSymbols(symbols) {
     const stmt = this.db.prepare(
       'INSERT INTO symbols (name, kind, rel_path, line) VALUES (?, ?, ?, ?)'
     );
@@ -65,7 +74,7 @@ export class CodeGraphStore {
     });
   }
 
-  insertEdges(edges) {
+  async insertEdges(edges) {
     const stmt = this.db.prepare('INSERT INTO edges (from_path, to_path, kind) VALUES (?, ?, ?)');
     this.#tx(() => {
       for (const e of edges) stmt.run(e.from, e.to, e.kind || 'import');
@@ -75,7 +84,7 @@ export class CodeGraphStore {
   // --- queries --------------------------------------------------------------
 
   /** Find where a symbol is defined (case-insensitive, partial match supported). */
-  findSymbol(name, { exact = false, limit = 25 } = {}) {
+  async findSymbol(name, { exact = false, limit = 25 } = {}) {
     if (exact) {
       return this.db
         .prepare('SELECT name, kind, rel_path AS relPath, line FROM symbols WHERE name = ? LIMIT ?')
@@ -90,7 +99,7 @@ export class CodeGraphStore {
   }
 
   /** Files that import `relPath` (i.e. who depends on it). */
-  dependentsOf(relPath) {
+  async dependentsOf(relPath) {
     return this.db
       .prepare('SELECT DISTINCT from_path AS relPath FROM edges WHERE to_path = ? ORDER BY from_path')
       .all(relPath)
@@ -98,7 +107,7 @@ export class CodeGraphStore {
   }
 
   /** Files that `relPath` imports (its dependencies). */
-  dependenciesOf(relPath) {
+  async dependenciesOf(relPath) {
     return this.db
       .prepare('SELECT DISTINCT to_path AS relPath FROM edges WHERE from_path = ? ORDER BY to_path')
       .all(relPath)
@@ -106,7 +115,7 @@ export class CodeGraphStore {
   }
 
   /** Whole graph for visualization (capped). */
-  getGraph(limit = 300) {
+  async getGraph(limit = 300) {
     const nodes = this.db.prepare('SELECT rel_path AS relPath, language FROM files LIMIT ?').all(limit);
     const nodeSet = new Set(nodes.map((n) => n.relPath));
     const edges = this.db
@@ -117,13 +126,13 @@ export class CodeGraphStore {
   }
 
   /** Symbols declared in one file. */
-  symbolsIn(relPath) {
+  async symbolsIn(relPath) {
     return this.db
       .prepare('SELECT name, kind, line FROM symbols WHERE rel_path = ? ORDER BY line')
       .all(relPath);
   }
 
-  counts() {
+  async counts() {
     const n = (sql) => this.db.prepare(sql).get().c;
     return {
       files: n('SELECT COUNT(*) AS c FROM files'),

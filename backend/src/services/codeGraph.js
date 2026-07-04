@@ -17,9 +17,9 @@ import { extractImports, resolveImport } from './imports.js';
  * Assumes the store was already reset (resetIndex() is called once per ingest).
  *
  * @param {Array} parsedDocs documents with { relPath, language, content, structuredSymbols }
- * @returns {{ symbolCount: number, edgeCount: number }}
+ * @returns {Promise<{ symbolCount: number, edgeCount: number }>}
  */
-export function buildCodeGraph(parsedDocs) {
+export async function buildCodeGraph(parsedDocs) {
   const store = appState.codeGraph;
   const fileSet = new Set(parsedDocs.map((d) => d.relPath));
 
@@ -44,32 +44,32 @@ export function buildCodeGraph(parsedDocs) {
     }
   }
 
-  store.insertFiles(files);
-  if (symbols.length) store.insertSymbols(symbols);
-  if (edges.length) store.insertEdges(edges);
+  await store.insertFiles(files);
+  if (symbols.length) await store.insertSymbols(symbols);
+  if (edges.length) await store.insertEdges(edges);
 
   return { symbolCount: symbols.length, edgeCount: edges.length };
 }
 
-// --- Query helpers (thin wrappers over the store) ---------------------------
+// --- Query helpers (thin wrappers over the store; all async) ----------------
 
-export function findSymbol(name, opts) {
+export async function findSymbol(name, opts) {
   return appState.codeGraph.findSymbol(name, opts);
 }
 
-export function dependentsOf(relPath) {
+export async function dependentsOf(relPath) {
   return appState.codeGraph.dependentsOf(relPath);
 }
 
-export function dependenciesOf(relPath) {
+export async function dependenciesOf(relPath) {
   return appState.codeGraph.dependenciesOf(relPath);
 }
 
-export function getGraph(limit) {
+export async function getGraph(limit) {
   return appState.codeGraph.getGraph(limit);
 }
 
-export function symbolsIn(relPath) {
+export async function symbolsIn(relPath) {
   return appState.codeGraph.symbolsIn(relPath);
 }
 

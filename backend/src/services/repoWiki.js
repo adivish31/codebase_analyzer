@@ -72,7 +72,7 @@ export async function generateRepoWiki(parsedDocs) {
       logger.warn(`Wiki summary failed for ${doc.relPath}: ${err.message}; using deterministic.`);
       summary = deterministicSummary(doc);
     }
-    appState.repoWiki.upsertWiki({
+    await appState.repoWiki.upsertWiki({
       relPath: doc.relPath,
       language: doc.language,
       summary,
@@ -86,11 +86,11 @@ export async function generateRepoWiki(parsedDocs) {
   return { count, mode };
 }
 
-export function getWiki(relPath) {
+export async function getWiki(relPath) {
   return appState.repoWiki.getWiki(relPath);
 }
 
-export function listWiki() {
+export async function listWiki() {
   return appState.repoWiki.listWiki();
 }
 

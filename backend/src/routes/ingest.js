@@ -39,11 +39,11 @@ router.post(
     // 2. Parse (language detection + structured symbols)
     const parsed = parseDocuments(documents);
 
-    // 3. Fresh index (clears in-memory store + both SQLite DBs)
-    resetIndex();
+    // 3. Fresh index (clears in-memory store + both persistence DBs)
+    await resetIndex();
 
     // 4. Build the code graph (files, symbols, import edges) -> CodeGraph DB
-    const { symbolCount, edgeCount } = buildCodeGraph(parsed);
+    const { symbolCount, edgeCount } = await buildCodeGraph(parsed);
 
     // 5. Chunk into retrievable pieces
     const chunks = chunkDocuments(parsed);
@@ -64,8 +64,8 @@ router.post(
       },
     }));
     for (const rec of records) appState.vectorStore.add(rec);
-    appState.repoWiki.insertChunks(records);
-    appState.repoWiki.insertFiles(parsed);
+    await appState.repoWiki.insertChunks(records);
+    await appState.repoWiki.insertFiles(parsed);
 
     // 8. Curate per-file wiki summaries -> RepoWiki DB
     const wiki = await generateRepoWiki(parsed);
@@ -79,7 +79,7 @@ router.post(
       wikiCount: wiki.count,
       durationMs: Date.now() - startedAt,
     };
-    appState.repoWiki.saveMeta(appState.codebase);
+    await appState.repoWiki.saveMeta(appState.codebase);
 
     logger.info(
       `Indexed ${chunks.length} chunks, ${symbolCount} symbols, ${edgeCount} edges from ${meta.fileCount} files in ${appState.codebase.durationMs}ms.`

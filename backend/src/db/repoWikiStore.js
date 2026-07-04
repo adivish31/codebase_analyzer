@@ -9,6 +9,10 @@
  *
  * On startup the server reloads `chunks` into the in-memory VectorStore, so search works
  * immediately without re-ingesting.
+ *
+ * NOTE: every method is async even though node:sqlite is synchronous — the Postgres store
+ * (db/pgRepoWikiStore.js) implements the exact same interface, so callers never know which
+ * driver is behind it.
  */
 import { openDatabase } from './sqlite.js';
 
@@ -54,23 +58,28 @@ export class RepoWikiStore {
   }
 
   /** Wipe all indexed data (called at the start of a fresh ingest). */
-  reset() {
+  async reset() {
     this.db.exec('DELETE FROM meta; DELETE FROM files; DELETE FROM chunks; DELETE FROM wiki;');
   }
 
+  /** Close the underlying connection (graceful shutdown). */
+  async close() {
+    this.db.close();
+  }
+
   // --- meta -----------------------------------------------------------------
-  saveMeta(meta) {
+  async saveMeta(meta) {
     const stmt = this.db.prepare('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)');
     stmt.run('codebase', JSON.stringify(meta));
   }
 
-  getMeta() {
+  async getMeta() {
     const row = this.db.prepare('SELECT value FROM meta WHERE key = ?').get('codebase');
     return row ? JSON.parse(row.value) : null;
   }
 
   // --- files ----------------------------------------------------------------
-  insertFiles(files) {
+  async insertFiles(files) {
     const stmt = this.db.prepare(
       'INSERT OR REPLACE INTO files (rel_path, language, line_count) VALUES (?, ?, ?)'
     );
@@ -80,7 +89,7 @@ export class RepoWikiStore {
   }
 
   // --- chunks (with vectors) ------------------------------------------------
-  insertChunks(records) {
+  async insertChunks(records) {
     const stmt = this.db.prepare(
       `INSERT OR REPLACE INTO chunks (id, rel_path, language, start_line, end_line, text, vector)
        VALUES (?, ?, ?, ?, ?, ?, ?)`
@@ -101,7 +110,7 @@ export class RepoWikiStore {
   }
 
   /** Return all chunks as VectorStore records: { id, vector, metadata }. */
-  allChunks() {
+  async allChunks() {
     const rows = this.db.prepare('SELECT * FROM chunks').all();
     return rows.map((row) => ({
       id: row.id,
@@ -117,7 +126,7 @@ export class RepoWikiStore {
   }
 
   // --- wiki -----------------------------------------------------------------
-  upsertWiki(entry) {
+  async upsertWiki(entry) {
     const stmt = this.db.prepare(
       `INSERT OR REPLACE INTO wiki (rel_path, language, summary, symbols, updated_at)
        VALUES (?, ?, ?, ?, ?)`
@@ -131,12 +140,12 @@ export class RepoWikiStore {
     );
   }
 
-  getWiki(relPath) {
+  async getWiki(relPath) {
     const row = this.db.prepare('SELECT * FROM wiki WHERE rel_path = ?').get(relPath);
     return row ? this.#wikiRow(row) : null;
   }
 
-  listWiki() {
+  async listWiki() {
     const rows = this.db.prepare('SELECT * FROM wiki ORDER BY rel_path').all();
     return rows.map((r) => this.#wikiRow(r));
   }

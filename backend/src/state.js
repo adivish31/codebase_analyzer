@@ -43,9 +43,9 @@ export async function initState() {
   appState.codeGraph = await CodeGraphStore.open(codeGraphPath);
 
   if (config.persist) {
-    const meta = appState.repoWiki.getMeta();
+    const meta = await appState.repoWiki.getMeta();
     if (meta) {
-      const records = appState.repoWiki.allChunks();
+      const records = await appState.repoWiki.allChunks();
       appState.vectorStore = new VectorStore();
       for (const rec of records) appState.vectorStore.add(rec);
       appState.codebase = meta;
@@ -64,11 +64,18 @@ export async function initState() {
 }
 
 /** Reset everything (used when ingesting a new repo). */
-export function resetIndex() {
+export async function resetIndex() {
   appState.codebase = null;
   appState.vectorStore = new VectorStore();
-  appState.repoWiki?.reset();
-  appState.codeGraph?.reset();
+  await appState.repoWiki?.reset();
+  await appState.codeGraph?.reset();
+}
+
+/** Close both stores (graceful shutdown). */
+export async function closeState() {
+  await appState.repoWiki?.close();
+  await appState.codeGraph?.close();
+  appState.initialized = false;
 }
 
 export default appState;
