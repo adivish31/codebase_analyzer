@@ -35,6 +35,15 @@ CREATE TABLE IF NOT EXISTS repowiki_wiki (
 );
 `;
 
+// CREATE TABLE IF NOT EXISTS never upgrades an existing table, so a DB created by an older build
+// can be missing columns. The chunks table is fully managed by #ensureChunksSchema (mode-aware
+// drop/recreate); these idempotent ALTERs cover the remaining tables.
+const MIGRATIONS = `
+ALTER TABLE repowiki_files  ADD COLUMN IF NOT EXISTS line_count INTEGER;
+ALTER TABLE repowiki_wiki   ADD COLUMN IF NOT EXISTS symbols    TEXT;
+ALTER TABLE repowiki_wiki   ADD COLUMN IF NOT EXISTS updated_at TEXT;
+`;
+
 /** Rows per multi-row INSERT (7 params each — well under pg's 65535-parameter cap). */
 const INSERT_BATCH = 200;
 const EMBEDDING_INDEX = 'idx_repowiki_chunks_embedding';
@@ -61,6 +70,7 @@ export class PgRepoWikiStore {
     }
 
     await pool.query(BASE_SCHEMA);
+    await pool.query(MIGRATIONS); // upgrade legacy files/wiki tables in place
     const store = new PgRepoWikiStore(pool, hasPgvector);
     await store.#ensureChunksSchema();
     return store;
@@ -232,20 +242,43 @@ export class PgRepoWikiStore {
     return out;
   }
 
-  /** All chunks as VectorStore records — used only in the no-pgvector fallback. */
+  /**
+   * All chunks as VectorStore records — used only in the no-pgvector fallback. Rows with a
+   * missing/unparseable vector (older schema or partial ingest) are skipped rather than crashing
+   * startup — the caller decides whether what's left is usable.
+   */
   async allChunks() {
     const { rows } = await this.pool.query('SELECT * FROM repowiki_chunks');
-    return rows.map((row) => ({
-      id: row.id,
-      vector: JSON.parse(row.vector),
-      metadata: {
-        relPath: row.rel_path,
-        language: row.language,
-        startLine: row.start_line,
-        endLine: row.end_line,
-        text: row.text,
-      },
-    }));
+    const records = [];
+    let skipped = 0;
+    for (const row of rows) {
+      let vector;
+      try {
+        vector = JSON.parse(row.vector);
+      } catch {
+        skipped++;
+        continue;
+      }
+      if (!Array.isArray(vector)) {
+        skipped++;
+        continue;
+      }
+      records.push({
+        id: row.id,
+        vector,
+        metadata: {
+          relPath: row.rel_path,
+          language: row.language,
+          startLine: row.start_line,
+          endLine: row.end_line,
+          text: row.text,
+        },
+      });
+    }
+    if (skipped > 0) {
+      console.warn(`[pgRepoWikiStore] Skipped ${skipped} chunk row(s) with invalid vectors — re-ingest recommended.`);
+    }
+    return records;
   }
 
   // --- wiki -----------------------------------------------------------------

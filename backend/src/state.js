@@ -50,12 +50,26 @@ export async function initState() {
     if (meta) {
       if (usePgvector) {
         appState.chunkIndex = new PgChunkIndex(repoWiki);
+        const count = await appState.chunkIndex.count();
+        if (count === 0) {
+          // Meta without usable chunks = a broken/stale persisted index. Report not-indexed so
+          // the user re-ingests, instead of half-working.
+          logger.warn('Persisted meta found but no usable chunks — index unusable, re-run /api/ingest.');
+          appState.initialized = true;
+          return appState;
+        }
         logger.info(
-          `Index ready in Postgres: ${await appState.chunkIndex.count()} chunks from ` +
+          `Index ready in Postgres: ${count} chunks from ` +
             `${meta.fileCount} files (${meta.source}) — pgvector ANN search, nothing loaded into RAM.`
         );
       } else {
         const records = await appState.repoWiki.allChunks();
+        if (records.length === 0) {
+          // Same guard for the in-memory path (e.g. schema drift or a partial ingest).
+          logger.warn('Persisted meta found but no usable chunks — index unusable, re-run /api/ingest.');
+          appState.initialized = true;
+          return appState;
+        }
         appState.chunkIndex = new MemoryChunkIndex();
         await appState.chunkIndex.addAll(records);
         logger.info(
