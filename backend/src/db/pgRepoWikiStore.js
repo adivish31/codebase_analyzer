@@ -1,14 +1,22 @@
 /**
- * RepoWiki DB — Postgres implementation.
+ * RepoWiki DB — Postgres implementation, with pgvector ANN search when available.
  *
  * Same interface as the SQLite RepoWikiStore (db/repoWikiStore.js); selected by the store factory
  * (db/index.js) when DATABASE_URL is set. Tables are prefixed `repowiki_` so both logical DBs live
- * comfortably in one Postgres database. Vectors are stored as JSON text, exactly like the SQLite
- * store — the in-memory VectorStore does the searching either way.
+ * comfortably in one Postgres database.
+ *
+ * Embeddings:
+ *   - pgvector present  → chunks carry an `embedding vector(dim)` column with an HNSW cosine
+ *     index; similarity search runs IN the database (searchChunks) and chunks never need to be
+ *     loaded into Node's memory. The column is re-typed to the active provider's dimension on
+ *     each ingest (the table is always freshly reset first).
+ *   - pgvector missing  → embeddings are stored as JSON text (like SQLite) and search falls back
+ *     to the in-memory index (MemoryChunkIndex), loaded via allChunks() at startup.
  */
 import { getPool, closePool } from './postgres.js';
+import { logger } from '../logger.js';
 
-const SCHEMA = `
+const BASE_SCHEMA = `
 CREATE TABLE IF NOT EXISTS repowiki_meta (
   key   TEXT PRIMARY KEY,
   value TEXT
@@ -18,16 +26,6 @@ CREATE TABLE IF NOT EXISTS repowiki_files (
   language   TEXT,
   line_count INTEGER
 );
-CREATE TABLE IF NOT EXISTS repowiki_chunks (
-  id         TEXT PRIMARY KEY,
-  rel_path   TEXT,
-  language   TEXT,
-  start_line INTEGER,
-  end_line   INTEGER,
-  text       TEXT,
-  vector     TEXT
-);
-CREATE INDEX IF NOT EXISTS idx_repowiki_chunks_path ON repowiki_chunks(rel_path);
 CREATE TABLE IF NOT EXISTS repowiki_wiki (
   rel_path   TEXT PRIMARY KEY,
   language   TEXT,
@@ -39,16 +37,64 @@ CREATE TABLE IF NOT EXISTS repowiki_wiki (
 
 /** Rows per multi-row INSERT (7 params each — well under pg's 65535-parameter cap). */
 const INSERT_BATCH = 200;
+const EMBEDDING_INDEX = 'idx_repowiki_chunks_embedding';
+
+/** Serialise a number[] into pgvector's text literal: "[0.1,0.2,...]". */
+const toVectorLiteral = (vec) => `[${vec.join(',')}]`;
 
 export class PgRepoWikiStore {
-  constructor(pool) {
+  constructor(pool, hasPgvector) {
     this.pool = pool;
+    this.hasPgvector = hasPgvector;
   }
 
   static async open(connectionString) {
     const pool = getPool(connectionString);
-    await pool.query(SCHEMA);
-    return new PgRepoWikiStore(pool);
+
+    // pgvector is optional: present on Supabase/Neon/RDS-with-extension; absent on plain PG.
+    let hasPgvector = true;
+    try {
+      await pool.query('CREATE EXTENSION IF NOT EXISTS vector');
+    } catch (err) {
+      hasPgvector = false;
+      logger.warn(`pgvector unavailable (${err.message}) — falling back to in-memory search.`);
+    }
+
+    await pool.query(BASE_SCHEMA);
+    const store = new PgRepoWikiStore(pool, hasPgvector);
+    await store.#ensureChunksSchema();
+    return store;
+  }
+
+  /**
+   * Make sure repowiki_chunks matches the active mode (embedding vector vs JSON text column).
+   * A mismatched legacy table is dropped — chunk data is always rebuildable via /api/ingest.
+   */
+  async #ensureChunksSchema() {
+    const { rows } = await this.pool.query(
+      `SELECT column_name FROM information_schema.columns WHERE table_name = 'repowiki_chunks'`
+    );
+    if (rows.length > 0) {
+      const cols = new Set(rows.map((r) => r.column_name));
+      const matches = this.hasPgvector ? cols.has('embedding') : cols.has('vector');
+      if (!matches) {
+        logger.warn('repowiki_chunks schema is from a different mode — recreating (re-ingest needed).');
+        await this.pool.query('DROP TABLE repowiki_chunks');
+      }
+    }
+    const embeddingCol = this.hasPgvector ? 'embedding vector' : 'vector TEXT';
+    await this.pool.query(`
+      CREATE TABLE IF NOT EXISTS repowiki_chunks (
+        id         TEXT PRIMARY KEY,
+        rel_path   TEXT,
+        language   TEXT,
+        start_line INTEGER,
+        end_line   INTEGER,
+        text       TEXT,
+        ${embeddingCol}
+      );
+      CREATE INDEX IF NOT EXISTS idx_repowiki_chunks_path ON repowiki_chunks(rel_path);
+    `);
   }
 
   async reset() {
@@ -82,8 +128,39 @@ export class PgRepoWikiStore {
     );
   }
 
-  // --- chunks (with vectors) ------------------------------------------------
+  // --- chunks (with embeddings) ----------------------------------------------
   async insertChunks(records) {
+    if (records.length === 0) return;
+
+    if (this.hasPgvector) {
+      // Fresh ingest (table was just reset): type the column to the active provider's dimension,
+      // bulk-insert, then (re)build the HNSW cosine index — building after insert is faster.
+      const dim = records[0].vector.length;
+      await this.pool.query(`DROP INDEX IF EXISTS ${EMBEDDING_INDEX}`);
+      await this.pool.query(
+        `ALTER TABLE repowiki_chunks ALTER COLUMN embedding TYPE vector(${dim}) USING embedding::vector(${dim})`
+      );
+      await this.#batchInsert(
+        'INSERT INTO repowiki_chunks (id, rel_path, language, start_line, end_line, text, embedding) VALUES %V ' +
+          'ON CONFLICT (id) DO NOTHING',
+        records.map((r) => [
+          r.id,
+          r.metadata.relPath,
+          r.metadata.language,
+          r.metadata.startLine,
+          r.metadata.endLine,
+          r.metadata.text,
+          toVectorLiteral(r.vector),
+        ])
+      );
+      await this.pool.query(
+        `CREATE INDEX ${EMBEDDING_INDEX} ON repowiki_chunks USING hnsw (embedding vector_cosine_ops)`
+      );
+      logger.info(`pgvector: indexed ${records.length} embeddings (dim=${dim}, HNSW/cosine).`);
+      return;
+    }
+
+    // No pgvector: JSON-text embeddings (searched in memory after reload).
     await this.#batchInsert(
       'INSERT INTO repowiki_chunks (id, rel_path, language, start_line, end_line, text, vector) VALUES %V ' +
         'ON CONFLICT (id) DO NOTHING',
@@ -99,7 +176,63 @@ export class PgRepoWikiStore {
     );
   }
 
-  /** Return all chunks as VectorStore records: { id, vector, metadata }. */
+  /**
+   * In-database ANN search (pgvector mode only). `<=>` is cosine distance, so similarity is
+   * 1 - distance — the same scale the in-memory dot-product search produces for unit vectors.
+   */
+  async searchChunks(queryVector, k) {
+    const { rows } = await this.pool.query(
+      `SELECT id, rel_path, language, start_line, end_line, text,
+              1 - (embedding <=> $1::vector) AS score
+       FROM repowiki_chunks
+       ORDER BY embedding <=> $1::vector
+       LIMIT $2`,
+      [toVectorLiteral(queryVector), k]
+    );
+    return rows.map((row) => ({
+      id: row.id,
+      score: Number(row.score),
+      metadata: {
+        relPath: row.rel_path,
+        language: row.language,
+        startLine: row.start_line,
+        endLine: row.end_line,
+        text: row.text,
+      },
+    }));
+  }
+
+  async countChunks() {
+    const { rows } = await this.pool.query('SELECT COUNT(*)::int AS c FROM repowiki_chunks');
+    return rows[0].c;
+  }
+
+  /** Per-file chunk stats for /api/files. */
+  async fileStats() {
+    const { rows } = await this.pool.query(
+      `SELECT rel_path AS "relPath", MIN(language) AS language, COUNT(*)::int AS "chunkCount"
+       FROM repowiki_chunks GROUP BY rel_path ORDER BY rel_path`
+    );
+    return rows;
+  }
+
+  /** Reconstructed per-file content for the diagram service. */
+  async filesContent() {
+    const { rows } = await this.pool.query(
+      'SELECT rel_path, language, text FROM repowiki_chunks ORDER BY rel_path, start_line'
+    );
+    const out = new Map();
+    for (const row of rows) {
+      if (!out.has(row.rel_path)) out.set(row.rel_path, { language: row.language, parts: [] });
+      out.get(row.rel_path).parts.push(row.text);
+    }
+    for (const [relPath, { language, parts }] of out) {
+      out.set(relPath, { language, content: parts.join('\n') });
+    }
+    return out;
+  }
+
+  /** All chunks as VectorStore records — used only in the no-pgvector fallback. */
   async allChunks() {
     const { rows } = await this.pool.query('SELECT * FROM repowiki_chunks');
     return rows.map((row) => ({

@@ -51,7 +51,8 @@ router.post(
     // 6. Embed every chunk
     const vectors = await embedTexts(chunks.map((c) => c.text));
 
-    // 7. Store chunks in the in-memory index AND persist them (with vectors) to RepoWiki DB
+    // 7. Persist chunks (with embeddings) to the RepoWiki DB and register them with the
+    //    retrieval index (no-op for pgvector — the DB rows ARE the index).
     const records = chunks.map((chunk, i) => ({
       id: chunk.id,
       vector: vectors[i],
@@ -63,8 +64,8 @@ router.post(
         text: chunk.text,
       },
     }));
-    for (const rec of records) appState.vectorStore.add(rec);
     await appState.repoWiki.insertChunks(records);
+    await appState.chunkIndex.addAll(records);
     await appState.repoWiki.insertFiles(parsed);
 
     // 8. Curate per-file wiki summaries -> RepoWiki DB

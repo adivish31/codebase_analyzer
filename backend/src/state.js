@@ -2,35 +2,37 @@
  * Process-wide application state.
  *
  * Holds:
- *   - vectorStore    : in-memory brute-force semantic index (the fast search path)
- *   - repoWiki       : RepoWiki DB  (SQLite) — chunks+vectors, per-file wiki, codebase meta
- *   - codeGraph      : CodeGraph DB (SQLite) — files, symbols, import edges
+ *   - chunkIndex     : the retrieval index (in-memory brute force, or pgvector in-database ANN)
+ *   - repoWiki       : RepoWiki DB  — chunks+embeddings, per-file wiki, codebase meta
+ *   - codeGraph      : CodeGraph DB — files, symbols, import edges
  *   - codebase       : metadata about what's indexed (mirrors repoWiki meta), or null
  *
- * Persistence is configurable (config.persist):
- *   - PERSIST=true  → DBs are files under config.dataDir; the index reloads on startup.
- *   - PERSIST=false → DBs use SQLite ':memory:' (same code path, nothing survives restart).
+ * Drivers (see db/index.js):
+ *   - DATABASE_URL + pgvector → chunks live ONLY in Postgres; search runs in-database (HNSW).
+ *   - DATABASE_URL, no pgvector → Postgres rows reloaded into the in-memory index at startup.
+ *   - otherwise SQLite (files or ':memory:'), reloaded into the in-memory index at startup.
  *
  * Everything that needs the current index imports from here — single source of truth.
  */
 import { config } from './config.js';
 import { logger } from './logger.js';
-import { VectorStore } from './services/vectorStore.js';
+import { MemoryChunkIndex, PgChunkIndex } from './services/chunkIndex.js';
 import { embeddingProvider } from './services/embeddings/index.js';
 import { openStores } from './db/index.js';
 
 export const appState = {
-  codebase: null, // { source, fileCount, chunkCount, symbolCount, edgeCount, ingestedAt }
-  vectorStore: new VectorStore(),
+  codebase: null, // { source, fileCount, chunkCount, symbolCount, edgeCount, embedding, ingestedAt }
+  chunkIndex: new MemoryChunkIndex(),
   repoWiki: null, // RepoWiki store (set by initState; sqlite or postgres)
   codeGraph: null, // CodeGraph store (set by initState; sqlite or postgres)
-  driver: null, // 'postgres' | 'sqlite' | 'sqlite-memory'
+  driver: null, // 'postgres+pgvector' | 'postgres' | 'sqlite' | 'sqlite-memory'
   initialized: false,
 };
 
 /**
- * Open the persistence stores and, if persistence is on and data exists, reload the in-memory
- * index. Idempotent: safe to call multiple times (no-op after first success).
+ * Open the persistence stores and prepare the retrieval index. With pgvector the index IS the
+ * database (nothing to reload); otherwise persisted chunks are loaded back into memory.
+ * Idempotent: safe to call multiple times (no-op after first success).
  */
 export async function initState() {
   if (appState.initialized) return appState;
@@ -38,19 +40,29 @@ export async function initState() {
   const { repoWiki, codeGraph, driver } = await openStores(config);
   appState.repoWiki = repoWiki;
   appState.codeGraph = codeGraph;
-  appState.driver = driver;
-  logger.info(`Persistence driver: ${driver}`);
+
+  const usePgvector = driver === 'postgres' && repoWiki.hasPgvector;
+  appState.driver = usePgvector ? 'postgres+pgvector' : driver;
+  logger.info(`Persistence driver: ${appState.driver}`);
 
   if (config.persist) {
     const meta = await appState.repoWiki.getMeta();
     if (meta) {
-      const records = await appState.repoWiki.allChunks();
-      appState.vectorStore = new VectorStore();
-      for (const rec of records) appState.vectorStore.add(rec);
+      if (usePgvector) {
+        appState.chunkIndex = new PgChunkIndex(repoWiki);
+        logger.info(
+          `Index ready in Postgres: ${await appState.chunkIndex.count()} chunks from ` +
+            `${meta.fileCount} files (${meta.source}) — pgvector ANN search, nothing loaded into RAM.`
+        );
+      } else {
+        const records = await appState.repoWiki.allChunks();
+        appState.chunkIndex = new MemoryChunkIndex();
+        await appState.chunkIndex.addAll(records);
+        logger.info(
+          `Reloaded persisted index: ${records.length} chunks from ${meta.fileCount} files (${meta.source}).`
+        );
+      }
       appState.codebase = meta;
-      logger.info(
-        `Reloaded persisted index: ${records.length} chunks from ${meta.fileCount} files (${meta.source}).`
-      );
       // Vectors from one embedding provider are meaningless to another's query embeddings.
       if (meta.embedding && meta.embedding.provider !== embeddingProvider.name) {
         logger.warn(
@@ -59,6 +71,7 @@ export async function initState() {
         );
       }
     } else {
+      if (usePgvector) appState.chunkIndex = new PgChunkIndex(repoWiki);
       logger.info('Persistence on; no prior index found — waiting for /api/ingest.');
     }
   } else {
@@ -72,9 +85,12 @@ export async function initState() {
 /** Reset everything (used when ingesting a new repo). */
 export async function resetIndex() {
   appState.codebase = null;
-  appState.vectorStore = new VectorStore();
   await appState.repoWiki?.reset();
   await appState.codeGraph?.reset();
+  // pgvector index: the TRUNCATE above already emptied it. Memory index: start fresh.
+  if (!(appState.chunkIndex instanceof PgChunkIndex)) {
+    appState.chunkIndex = new MemoryChunkIndex();
+  }
 }
 
 /** Close both stores (graceful shutdown). */

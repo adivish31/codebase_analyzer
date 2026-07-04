@@ -17,7 +17,7 @@ import { getWiki } from '../services/repoWiki.js';
 const router = Router();
 
 function ensureIndexed() {
-  if (!appState.codebase || appState.vectorStore.size === 0) {
+  if (!appState.codebase) {
     throw new ApiError(409, 'No codebase indexed yet. POST /api/ingest first.');
   }
 }

@@ -15,11 +15,11 @@ const router = Router();
 router.get(
   '/diagram',
   asyncHandler(async (req, res) => {
-    if (!appState.codebase || appState.vectorStore.size === 0) {
+    if (!appState.codebase) {
       throw new ApiError(409, 'No codebase indexed yet. POST /api/ingest first.');
     }
     const { type, relPath } = req.query;
-    const result = generateDiagram(type || 'architecture', { relPath });
+    const result = await generateDiagram(type || 'architecture', { relPath });
     res.json(result);
   })
 );

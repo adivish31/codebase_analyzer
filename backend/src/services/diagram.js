@@ -4,10 +4,9 @@
  * Produces Mermaid diagram source strings describing the ingested codebase. The frontend renders
  * the returned Mermaid text with mermaid.js.
  *
- * IMPORTANT (decoupling): this module reads ONLY from the shared vector store
- * (appState.vectorStore.records), so it is purely additive — it requires no changes to the
- * backend files Aditya committed. It reconstructs per-file content by concatenating that file's
- * chunks, which is enough to scan import/require statements.
+ * Reads per-file content reconstructed from the retrieval index (appState.chunkIndex), which
+ * works identically whether chunks live in memory or in Postgres — enough to scan
+ * import/require statements.
  *
  * Diagram types:
  *   - "dependency": file -> file edges from import/require statements
@@ -16,19 +15,9 @@
  */
 import { appState } from '../state.js';
 
-/** Group chunk records back into { relPath -> { language, text } }. */
+/** { relPath -> { language, content } } for every indexed file. */
 function reconstructFiles() {
-  const files = new Map();
-  for (const rec of appState.vectorStore.records) {
-    const { relPath, language, text } = rec.metadata;
-    if (!files.has(relPath)) files.set(relPath, { language, parts: [] });
-    files.get(relPath).parts.push(text);
-  }
-  const out = new Map();
-  for (const [relPath, { language, parts }] of files) {
-    out.set(relPath, { language, content: parts.join('\n') });
-  }
-  return out;
+  return appState.chunkIndex.filesContent();
 }
 
 /** Extract imported module specifiers from JS/TS-ish source. */
@@ -73,8 +62,8 @@ function nodeId(relPath, ids) {
   return id;
 }
 
-export function dependencyDiagram() {
-  const files = reconstructFiles();
+export async function dependencyDiagram() {
+  const files = await reconstructFiles();
   const fileSet = new Set(files.keys());
   const ids = new Map();
   const lines = ['graph LR'];
@@ -97,8 +86,8 @@ export function dependencyDiagram() {
   return lines.join('\n');
 }
 
-export function architectureDiagram() {
-  const files = reconstructFiles();
+export async function architectureDiagram() {
+  const files = await reconstructFiles();
   const groups = new Map();
   for (const relPath of files.keys()) {
     const top = relPath.includes('/') ? relPath.split('/')[0] : '(root)';
@@ -114,8 +103,8 @@ export function architectureDiagram() {
   return lines.join('\n');
 }
 
-export function moduleDiagram(relPath) {
-  const files = reconstructFiles();
+export async function moduleDiagram(relPath) {
+  const files = await reconstructFiles();
   const file = files.get(relPath);
   if (!file) return `graph TD\n  err["File not indexed: ${relPath}"]`;
   const symbols = [...new Set(
@@ -132,12 +121,12 @@ export function moduleDiagram(relPath) {
 }
 
 /** Dispatch by type. */
-export function generateDiagram(type = 'architecture', opts = {}) {
+export async function generateDiagram(type = 'architecture', opts = {}) {
   switch (type) {
-    case 'dependency': return { type, mermaid: dependencyDiagram() };
-    case 'module':     return { type, mermaid: moduleDiagram(opts.relPath) };
+    case 'dependency': return { type, mermaid: await dependencyDiagram() };
+    case 'module':     return { type, mermaid: await moduleDiagram(opts.relPath) };
     case 'architecture':
-    default:           return { type: 'architecture', mermaid: architectureDiagram() };
+    default:           return { type: 'architecture', mermaid: await architectureDiagram() };
   }
 }
 

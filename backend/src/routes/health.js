@@ -9,7 +9,7 @@ const router = Router();
  * Liveness/readiness probe. Returns the active AI provider, persistence mode, and whether a
  * codebase is currently indexed — so you can confirm state without reading logs.
  */
-router.get('/health', (req, res) => {
+router.get('/health', async (req, res) => {
   res.json({
     status: 'ok',
     env: config.env,
@@ -17,7 +17,7 @@ router.get('/health', (req, res) => {
     persist: config.persist,
     persistenceDriver: appState.driver,
     indexed: Boolean(appState.codebase),
-    chunks: appState.vectorStore?.size ?? 0,
+    chunks: await appState.chunkIndex.count(),
     uptimeSeconds: Math.round(process.uptime()),
     time: new Date().toISOString(),
   });

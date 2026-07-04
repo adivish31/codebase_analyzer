@@ -1,38 +1,33 @@
 /**
  * GET /api/files
  *
- * Returns a deduplicated list of every source file currently in the vector index,
+ * Returns a deduplicated list of every source file currently in the retrieval index,
  * with language and the number of chunks indexed from it. Useful for the frontend
  * to display a file tree or let the user request a per-file module diagram.
  */
 import { Router } from 'express';
 import { appState } from '../state.js';
+import { asyncHandler } from '../middleware/asyncHandler.js';
 import { ApiError } from '../middleware/errorHandler.js';
 
 const router = Router();
 
-router.get('/files', (req, res) => {
-  if (!appState.codebase || appState.vectorStore.size === 0) {
-    throw new ApiError(409, 'No codebase indexed yet. POST /api/ingest first.');
-  }
-
-  // Aggregate per-file stats from vector store metadata (no disk re-reads needed)
-  const fileMap = new Map(); // relPath -> { relPath, language, chunkCount }
-  for (const rec of appState.vectorStore.records) {
-    const { relPath, language } = rec.metadata;
-    if (!fileMap.has(relPath)) {
-      fileMap.set(relPath, { relPath, language, chunkCount: 0 });
+router.get(
+  '/files',
+  asyncHandler(async (req, res) => {
+    if (!appState.codebase) {
+      throw new ApiError(409, 'No codebase indexed yet. POST /api/ingest first.');
     }
-    fileMap.get(relPath).chunkCount += 1;
-  }
 
-  const files = [...fileMap.values()].sort((a, b) => a.relPath.localeCompare(b.relPath));
+    // Aggregated per-file stats come straight from the index (memory or Postgres).
+    const files = await appState.chunkIndex.fileStats();
 
-  res.json({
-    fileCount: files.length,
-    totalChunks: appState.vectorStore.size,
-    files,
-  });
-});
+    res.json({
+      fileCount: files.length,
+      totalChunks: await appState.chunkIndex.count(),
+      files,
+    });
+  })
+);
 
 export default router;

@@ -89,7 +89,7 @@ export async function answerQuestion(question, opts = {}) {
   if (!question || typeof question !== 'string' || question.trim().length === 0) {
     throw new ApiError(400, '`question` is required.');
   }
-  if (!appState.codebase || appState.vectorStore.size === 0) {
+  if (!appState.codebase) {
     throw new ApiError(409, 'No codebase indexed yet. POST /api/ingest first.');
   }
 
@@ -99,9 +99,10 @@ export async function answerQuestion(question, opts = {}) {
   // 1. Embed the question into the same vector space as the chunks.
   const queryVector = await embedQuery(question);
 
-  // 2. Retrieve candidates. Over-fetch when hybrid so re-ranking has room to work.
+  // 2. Retrieve candidates (in-memory or pgvector, depending on the driver). Over-fetch when
+  //    hybrid so re-ranking has room to work.
   const overFetch = config.retrieval.hybrid ? topK * 4 : topK;
-  let results = appState.vectorStore.search(queryVector, overFetch);
+  let results = await appState.chunkIndex.search(queryVector, overFetch);
 
   // 3. Hybrid re-rank: blend semantic score with keyword/path overlap.
   if (config.retrieval.hybrid) {
