@@ -7,6 +7,8 @@
  */
 import express from 'express';
 import cors from 'cors';
+import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -32,8 +34,20 @@ export async function createApp() {
   const app = express();
 
   // --- Core middleware ---
+  app.use(helmet()); // security headers (no-sniff, frameguard, HSTS, ...)
+  if (config.security.trustProxy) app.set('trust proxy', 1);
   app.use(cors({ origin: config.corsOrigins }));
   app.use(express.json({ limit: '5mb' })); // parse JSON bodies (repo paths, questions)
+
+  // --- Rate limiting (per client IP) on the two expensive endpoints ---
+  app.use(
+    '/api/ask',
+    rateLimit({ windowMs: 60_000, limit: config.security.askRateLimit, standardHeaders: true, legacyHeaders: false })
+  );
+  app.use(
+    '/api/ingest',
+    rateLimit({ windowMs: 600_000, limit: config.security.ingestRateLimit, standardHeaders: true, legacyHeaders: false })
+  );
 
   // Simple request logger
   app.use((req, res, next) => {

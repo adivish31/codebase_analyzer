@@ -150,6 +150,11 @@ export async function ingestSource(source) {
     root = dir;
     cleanup = () => fs.rmSync(dir, { recursive: true, force: true });
   } else {
+    // Local paths read the server's own filesystem — disabled on hosted instances
+    // (ALLOW_LOCAL_INGEST=false, the production default). Git URLs are always fine.
+    if (!config.security.allowLocalIngest) {
+      throw new ApiError(403, 'Local path ingestion is disabled on this server. Provide a git URL instead.');
+    }
     root = path.resolve(source);
     if (!fs.existsSync(root) || !fs.statSync(root).isDirectory()) {
       throw new ApiError(400, `Path does not exist or is not a directory: ${root}`);

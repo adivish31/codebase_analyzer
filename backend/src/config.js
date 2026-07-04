@@ -78,6 +78,18 @@ export const config = {
   graph: {
     maxNodes: int('GRAPH_MAX_NODES', 300),
   },
+
+  security: {
+    // Set true when running behind a reverse proxy / load balancer so rate limiting sees the
+    // real client IP (X-Forwarded-For) instead of the proxy's.
+    trustProxy: bool('TRUST_PROXY', false),
+    // Ingesting a local folder path reads the server's own filesystem — fine on a dev machine,
+    // dangerous on a hosted instance. Defaults off in production; override explicitly if needed.
+    allowLocalIngest: bool('ALLOW_LOCAL_INGEST', (process.env.NODE_ENV || 'development') !== 'production'),
+    // Rate limits (per client IP): asks per minute, ingests per 10 minutes.
+    askRateLimit: int('ASK_RATE_LIMIT', 30),
+    ingestRateLimit: int('INGEST_RATE_LIMIT', 5),
+  },
 };
 
 export default config;
