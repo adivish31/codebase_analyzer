@@ -13,34 +13,32 @@
  *
  * Everything that needs the current index imports from here — single source of truth.
  */
-import path from 'node:path';
-
 import { config } from './config.js';
 import { logger } from './logger.js';
 import { VectorStore } from './services/vectorStore.js';
-import { RepoWikiStore } from './db/repoWikiStore.js';
-import { CodeGraphStore } from './db/codeGraphStore.js';
+import { openStores } from './db/index.js';
 
 export const appState = {
   codebase: null, // { source, fileCount, chunkCount, symbolCount, edgeCount, ingestedAt }
   vectorStore: new VectorStore(),
-  repoWiki: null, // RepoWikiStore (set by initState)
-  codeGraph: null, // CodeGraphStore (set by initState)
+  repoWiki: null, // RepoWiki store (set by initState; sqlite or postgres)
+  codeGraph: null, // CodeGraph store (set by initState; sqlite or postgres)
+  driver: null, // 'postgres' | 'sqlite' | 'sqlite-memory'
   initialized: false,
 };
 
 /**
- * Open the SQLite stores and, if persistence is on and data exists, reload the in-memory index.
- * Idempotent: safe to call multiple times (no-op after first success).
+ * Open the persistence stores and, if persistence is on and data exists, reload the in-memory
+ * index. Idempotent: safe to call multiple times (no-op after first success).
  */
 export async function initState() {
   if (appState.initialized) return appState;
 
-  const repoWikiPath = config.persist ? path.join(config.dataDir, 'repowiki.db') : ':memory:';
-  const codeGraphPath = config.persist ? path.join(config.dataDir, 'codegraph.db') : ':memory:';
-
-  appState.repoWiki = await RepoWikiStore.open(repoWikiPath);
-  appState.codeGraph = await CodeGraphStore.open(codeGraphPath);
+  const { repoWiki, codeGraph, driver } = await openStores(config);
+  appState.repoWiki = repoWiki;
+  appState.codeGraph = codeGraph;
+  appState.driver = driver;
+  logger.info(`Persistence driver: ${driver}`);
 
   if (config.persist) {
     const meta = await appState.repoWiki.getMeta();
@@ -56,7 +54,7 @@ export async function initState() {
       logger.info('Persistence on; no prior index found — waiting for /api/ingest.');
     }
   } else {
-    logger.info('Persistence off (PERSIST=false) — using in-memory SQLite.');
+    logger.info('Persistence off (PERSIST=false) — nothing survives a restart.');
   }
 
   appState.initialized = true;

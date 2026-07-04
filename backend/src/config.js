@@ -46,10 +46,12 @@ export const config = {
   // Optional token for cloning PRIVATE GitHub repos (public repos need nothing).
   githubToken: process.env.GITHUB_TOKEN || '',
 
-  // Persistence: when true, the RepoWiki/CodeGraph SQLite DBs are written to dataDir and the
-  // index reloads on restart. When false, everything lives in in-memory SQLite.
+  // Persistence: when true, the RepoWiki/CodeGraph DBs survive restarts and the index reloads on
+  // startup. Driver: Postgres when DATABASE_URL is set, otherwise SQLite files under dataDir.
+  // When false, everything lives in in-memory SQLite.
   persist: bool('PERSIST', true),
   dataDir: process.env.DATA_DIR || './data',
+  databaseUrl: process.env.DATABASE_URL || '',
 
   embedding: {
     dim: int('EMBEDDING_DIM', 256),

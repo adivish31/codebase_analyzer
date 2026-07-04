@@ -15,6 +15,7 @@ router.get('/health', (req, res) => {
     env: config.env,
     aiProvider: config.ai.provider,
     persist: config.persist,
+    persistenceDriver: appState.driver,
     indexed: Boolean(appState.codebase),
     chunks: appState.vectorStore?.size ?? 0,
     uptimeSeconds: Math.round(process.uptime()),
