@@ -1,7 +1,7 @@
-{
-  "name": "codebase-knowledge-ai-backend",
+﻿{
+  "name": "cairn-backend",
   "version": "0.1.0",
-  "description": "Express backend for Codebase Knowledge AI: ingestion, chunking, embeddings, vector store, and RAG.",
+  "description": "Cairn API: ingestion, chunking, embeddings, vector store, and RAG.",
   "type": "module",
   "main": "src/index.js",
   "scripts": {
