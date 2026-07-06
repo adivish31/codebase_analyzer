@@ -1,0 +1,96 @@
+{
+  "description": "Golden question set for the Cairn backend indexed against its own source (backend/src). Each entry lists the file(s) a correct retrieval must surface in the top-K sources, and keywords a correct answer should mention.",
+  "source": "./src",
+  "questions": [
+    {
+      "question": "How does the chunker split files into pieces?",
+      "expected_files": ["services/chunker.js"],
+      "expected_keywords": ["chunk", "overlap", "line"]
+    },
+    {
+      "question": "Where does ingestion decide which files to skip?",
+      "expected_files": ["services/ingestion.js"],
+      "expected_keywords": ["ignored", "extension"]
+    },
+    {
+      "question": "How is the question embedded before retrieval?",
+      "expected_files": ["services/rag.js", "services/embeddings/index.js"],
+      "expected_keywords": ["embed", "vector"]
+    },
+    {
+      "question": "How does hybrid retrieval rank chunks?",
+      "expected_files": ["services/rag.js"],
+      "expected_keywords": ["keyword", "score", "re-rank"]
+    },
+    {
+      "question": "What does the vector store use to compare vectors?",
+      "expected_files": ["services/vectorStore.js"],
+      "expected_keywords": ["cosine", "dot"]
+    },
+    {
+      "question": "How are import edges between files discovered?",
+      "expected_files": ["services/imports.js", "services/codeGraph.js"],
+      "expected_keywords": ["import", "resolve"]
+    },
+    {
+      "question": "Where are declared symbols like functions and classes extracted?",
+      "expected_files": ["services/parser.js"],
+      "expected_keywords": ["symbol", "regex"]
+    },
+    {
+      "question": "How does the app choose between the mock, OpenAI, and Groq LLM providers?",
+      "expected_files": ["providers/llm/index.js"],
+      "expected_keywords": ["provider", "AI_PROVIDER"]
+    },
+    {
+      "question": "What happens when the Groq API streams a completion?",
+      "expected_files": ["providers/llm/groqProvider.js"],
+      "expected_keywords": ["stream", "token", "delta"]
+    },
+    {
+      "question": "How do answers get cached between repeated questions?",
+      "expected_files": ["services/queryCache.js"],
+      "expected_keywords": ["cache", "LRU"]
+    },
+    {
+      "question": "Where is the Express app assembled and middleware registered?",
+      "expected_files": ["app.js"],
+      "expected_keywords": ["express", "middleware", "route"]
+    },
+    {
+      "question": "How are rate limits applied to the ask endpoint?",
+      "expected_files": ["app.js", "config.js"],
+      "expected_keywords": ["rate", "limit"]
+    },
+    {
+      "question": "How does the server reload a persisted index after a restart?",
+      "expected_files": ["state.js"],
+      "expected_keywords": ["reload", "persist"]
+    },
+    {
+      "question": "Where are chunks and vectors written to SQLite?",
+      "expected_files": ["db/repoWikiStore.js"],
+      "expected_keywords": ["chunk", "vector", "insert"]
+    },
+    {
+      "question": "How does the code find where a symbol is defined?",
+      "expected_files": ["db/codeGraphStore.js", "services/codeGraph.js"],
+      "expected_keywords": ["symbol", "name"]
+    },
+    {
+      "question": "What stages does the ingest pipeline run in order?",
+      "expected_files": ["services/pipeline.js"],
+      "expected_keywords": ["clon", "chunk", "embed"]
+    },
+    {
+      "question": "How is a private GitHub repository cloned with a token?",
+      "expected_files": ["services/ingestion.js"],
+      "expected_keywords": ["token", "clone"]
+    },
+    {
+      "question": "How are per-file wiki summaries generated?",
+      "expected_files": ["services/repoWiki.js"],
+      "expected_keywords": ["summary", "wiki"]
+    }
+  ]
+}
