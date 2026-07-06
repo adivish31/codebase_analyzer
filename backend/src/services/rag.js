@@ -18,7 +18,8 @@ import { ApiError } from '../middleware/errorHandler.js';
 import { appState } from '../state.js';
 import { embedQuery } from './embeddings/index.js';
 import { findSymbol } from './codeGraph.js';
-import { complete } from '../providers/llm/index.js';
+import { complete, completeStream } from '../providers/llm/index.js';
+import { getCached, setCached } from './queryCache.js';
 
 const SYSTEM_PROMPT =
   'You are a senior engineer explaining a codebase. Answer the question using ONLY the provided ' +
@@ -81,19 +82,10 @@ function buildPrompt(question, results, symbolHints) {
 }
 
 /**
- * Answer a question about the currently-ingested codebase.
- * @param {string} question
- * @param {{ topK?: number }} [opts]
+ * Retrieval phase, shared by the blocking and streaming answer paths:
+ * embed → over-fetch → hybrid re-rank → symbol lookup → prompt.
  */
-export async function answerQuestion(question, opts = {}) {
-  if (!question || typeof question !== 'string' || question.trim().length === 0) {
-    throw new ApiError(400, '`question` is required.');
-  }
-  if (!appState.codebase) {
-    throw new ApiError(409, 'No codebase indexed yet. POST /api/ingest first.');
-  }
-
-  const topK = opts.topK || config.retrieval.topK;
+async function retrieveContext(question, topK) {
   const keywords = keywordsOf(question);
 
   // 1. Embed the question into the same vector space as the chunks.
@@ -125,11 +117,26 @@ export async function answerQuestion(question, opts = {}) {
     }
   }
 
-  // 5. Build a grounded prompt and ask the LLM.
-  const prompt = buildPrompt(question, results, symbolHints);
-  const { text, model } = await complete({ system: SYSTEM_PROMPT, prompt, context: results });
+  return {
+    results,
+    symbolHints: symbolHints.slice(0, 10),
+    prompt: buildPrompt(question, results, symbolHints),
+  };
+}
 
-  // 6. Return the answer plus structured sources + symbol hints for the UI.
+function validateAsk(question) {
+  if (!question || typeof question !== 'string' || question.trim().length === 0) {
+    throw new ApiError(400, '`question` is required.');
+  }
+  // codebase meta is the indexed-ness signal — with pgvector the chunks live only in the DB,
+  // so there is no in-memory size to check.
+  if (!appState.codebase) {
+    throw new ApiError(409, 'No codebase indexed yet. POST /api/ingest first.');
+  }
+}
+
+/** Shape the response payload (also what gets cached). */
+function toPayload(text, model, results, symbolHints) {
   return {
     answer: text,
     model,
@@ -141,8 +148,65 @@ export async function answerQuestion(question, opts = {}) {
       score: Number(r.score.toFixed(4)),
       preview: r.metadata.text.slice(0, 240),
     })),
-    symbols: symbolHints.slice(0, 10),
+    symbols: symbolHints,
   };
+}
+
+/**
+ * Answer a question about the currently-ingested codebase (blocking).
+ * @param {string} question
+ * @param {{ topK?: number }} [opts]
+ */
+export async function answerQuestion(question, opts = {}) {
+  validateAsk(question);
+  const topK = opts.topK || config.retrieval.topK;
+  const indexVersion = appState.codebase.ingestedAt;
+
+  const cached = getCached(question, topK, indexVersion);
+  if (cached) return { ...cached, cached: true };
+
+  const { results, symbolHints, prompt } = await retrieveContext(question, topK);
+  const { text, model } = await complete({ system: SYSTEM_PROMPT, prompt, context: results });
+
+  const payload = toPayload(text, model, results, symbolHints);
+  setCached(question, topK, indexVersion, payload);
+  return payload;
+}
+
+/**
+ * Streaming variant. Emits, in order:
+ *   onSources({ sources, symbols })  — citations arrive BEFORE the answer starts
+ *   onToken(delta)                   — per streamed text delta
+ * Resolves with the same payload shape as answerQuestion. Cache hits replay instantly.
+ */
+export async function answerQuestionStream(question, opts = {}, { onSources, onToken }) {
+  validateAsk(question);
+  const topK = opts.topK || config.retrieval.topK;
+  const indexVersion = appState.codebase.ingestedAt;
+
+  const cached = getCached(question, topK, indexVersion);
+  if (cached) {
+    onSources?.({ sources: cached.sources, symbols: cached.symbols });
+    onToken?.(cached.answer);
+    return { ...cached, cached: true };
+  }
+
+  const { results, symbolHints, prompt } = await retrieveContext(question, topK);
+  onSources?.({
+    sources: toPayload('', '', results, symbolHints).sources,
+    symbols: symbolHints,
+  });
+
+  const { text, model } = await completeStream({
+    system: SYSTEM_PROMPT,
+    prompt,
+    context: results,
+    onToken,
+  });
+
+  const payload = toPayload(text, model, results, symbolHints);
+  setCached(question, topK, indexVersion, payload);
+  return payload;
 }
 
 export default answerQuestion;
