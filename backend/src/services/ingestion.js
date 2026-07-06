@@ -60,6 +60,15 @@ function withAuth(url) {
   return url.replace(/^https:\/\//i, `https://${config.githubToken}@`);
 }
 
+/**
+ * Parse `owner` and `repo` out of a github.com URL (https or ssh). Returns null for other hosts —
+ * deep-link citations are a GitHub-only feature.
+ */
+export function parseGitHubUrl(url) {
+  const m = url.match(/github\.com[/:]([^/]+)\/([^/.\s]+)(?:\.git)?/i);
+  return m ? { owner: m[1], repo: m[2] } : null;
+}
+
 /** Shallow-clone a git repo (public, or private with GITHUB_TOKEN) into a temp dir. */
 async function cloneRepo(url) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cka-'));
@@ -71,7 +80,18 @@ async function cloneRepo(url) {
     const safe = err.message.split('\n')[0].replace(/https:\/\/[^@\s]+@/g, 'https://');
     throw new ApiError(400, `Failed to clone repository: ${safe}`);
   }
-  return { dir, isTemp: true };
+
+  // Record the exact commit we indexed so citations can deep-link to
+  // github.com/{owner}/{repo}/blob/{sha}/{path}#L{line} — immune to later pushes.
+  let sha = null;
+  try {
+    const { stdout } = await execFileAsync('git', ['-C', dir, 'rev-parse', 'HEAD'], { timeout: 10000 });
+    sha = stdout.trim();
+  } catch {
+    /* citations fall back to non-linked chips */
+  }
+
+  return { dir, isTemp: true, sha };
 }
 
 /** Heuristic: a NULL (char code 0) byte means the file is binary, not source text. */
@@ -144,11 +164,14 @@ export async function ingestSource(source) {
 
   let root = source;
   let cleanup = null;
+  let github = null;
 
   if (looksLikeUrl(source)) {
-    const { dir } = await cloneRepo(source);
+    const { dir, sha } = await cloneRepo(source);
     root = dir;
     cleanup = () => fs.rmSync(dir, { recursive: true, force: true });
+    const parsed = parseGitHubUrl(source);
+    if (parsed && sha) github = { ...parsed, sha };
   } else {
     // Local paths read the server's own filesystem — disabled on hosted instances
     // (ALLOW_LOCAL_INGEST=false, the production default). Git URLs are always fine.
@@ -180,6 +203,8 @@ export async function ingestSource(source) {
       source,
       fileCount: documents.length,
       ingestedAt: new Date().toISOString(),
+      // { owner, repo, sha } for GitHub sources — powers deep-linked citations. Null otherwise.
+      github,
     },
   };
 }
