@@ -1,4 +1,4 @@
-﻿import { Space_Grotesk, Inter, JetBrains_Mono } from 'next/font/google';
+import { Space_Grotesk, Inter, JetBrains_Mono } from 'next/font/google';
 import Script from 'next/script';
 import 'highlight.js/styles/github-dark.css';
 import './globals.css';

@@ -11,6 +11,7 @@ import { api } from '../../lib/api';
 
 export default function Workspace() {
   const [indexed, setIndexed] = useState(false);
+  const [codebase, setCodebase] = useState(null);
   // Shared "ask" channel: panels call pushQuestion() and the Chat picks it up (click-to-ask).
   const [pending, setPending] = useState({ text: '', nonce: 0 });
 
@@ -18,7 +19,13 @@ export default function Workspace() {
 
   // On load, check if a codebase is already indexed on the backend.
   useEffect(() => {
-    api.status().then((s) => setIndexed(Boolean(s.indexed))).catch(() => {});
+    api
+      .status()
+      .then((s) => {
+        setIndexed(Boolean(s.indexed));
+        setCodebase(s.codebase || null);
+      })
+      .catch(() => {});
   }, []);
 
   return (
@@ -33,8 +40,18 @@ export default function Workspace() {
         <ThemeToggle />
       </header>
       <main className="mx-auto grid max-w-[1100px] gap-5 p-6">
-        <RepoInput onIngested={() => setIndexed(true)} />
-        <Chat enabled={indexed} pendingQuestion={pending.text} askNonce={pending.nonce} />
+        <RepoInput
+          onIngested={(cb) => {
+            setIndexed(true);
+            setCodebase(cb || null);
+          }}
+        />
+        <Chat
+          enabled={indexed}
+          pendingQuestion={pending.text}
+          askNonce={pending.nonce}
+          github={codebase?.github}
+        />
         <DiagramViewer enabled={indexed} onAsk={pushQuestion} />
         <CodeMap enabled={indexed} />
         <FileBrowser enabled={indexed} onAsk={pushQuestion} />

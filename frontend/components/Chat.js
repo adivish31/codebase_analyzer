@@ -4,10 +4,16 @@ import { api } from '../lib/api';
 import CopyButton from './CopyButton';
 import CodeBlock from './CodeBlock';
 
-// Q&A over the ingested codebase. Each AI answer shows the source chunks it used (with an
-// expandable, syntax-highlighted preview and a copy button on the answer).
+/** Deep link to the exact lines on GitHub, pinned to the indexed commit. */
+function githubUrl(github, s) {
+  if (!github?.owner || !github?.sha) return null;
+  return `https://github.com/${github.owner}/${github.repo}/blob/${github.sha}/${s.relPath}#L${s.startLine}-L${s.endLine}`;
+}
+
+// Q&A over the ingested codebase. Answers stream token-by-token over SSE; citations arrive
+// BEFORE the first token and render as chips that deep-link to GitHub at the indexed commit.
 // `pendingQuestion` + `askNonce` let other panels (diagram / file browser) push a question here.
-export default function Chat({ enabled, pendingQuestion, askNonce }) {
+export default function Chat({ enabled, pendingQuestion, askNonce, github }) {
   const [question, setQuestion] = useState('');
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -22,11 +28,37 @@ export default function Chat({ enabled, pendingQuestion, askNonce }) {
     setLoading(true);
     setMessages((m) => [...m, { role: 'user', text: q }]);
     setQuestion('');
+
+    // Placeholder AI message that the stream fills in.
+    setMessages((m) => [...m, { role: 'ai', text: '', sources: [], streaming: true }]);
+    const patchLast = (patch) =>
+      setMessages((m) => {
+        const next = [...m];
+        next[next.length - 1] = { ...next[next.length - 1], ...patch };
+        return next;
+      });
+
     try {
-      const res = await api.ask(q);
-      setMessages((m) => [...m, { role: 'ai', text: res.answer, sources: res.sources }]);
+      let acc = '';
+      await api.askStream(q, {
+        sources: ({ sources }) => patchLast({ sources }),
+        token: ({ delta }) => {
+          acc += delta;
+          patchLast({ text: acc });
+        },
+        done: (result) =>
+          patchLast({
+            text: result.answer,
+            sources: result.sources,
+            model: result.model,
+            cached: result.cached,
+            streaming: false,
+          }),
+      });
     } catch (e) {
       setError(e.message);
+      // Drop the empty placeholder if nothing streamed.
+      setMessages((m) => (m[m.length - 1]?.streaming && !m[m.length - 1].text ? m.slice(0, -1) : m));
     } finally {
       setLoading(false);
     }
@@ -54,23 +86,42 @@ export default function Chat({ enabled, pendingQuestion, askNonce }) {
       <div className="thread" ref={threadRef}>
         {messages.map((m, i) => (
           <div key={i} className={`msg ${m.role}`}>
-            {m.role === 'ai' && (
+            {m.role === 'ai' && !m.streaming && m.text && (
               <div className="msg-toolbar">
+                {m.cached && <span className="label-mono" style={{ marginRight: 8 }}>cached</span>}
                 <CopyButton text={m.text} label="Copy answer" />
               </div>
             )}
-            <pre>{m.text}</pre>
+            <pre>
+              {m.text}
+              {m.streaming && <span style={{ color: 'var(--accent)' }}>▌</span>}
+            </pre>
             {m.sources?.length > 0 && (
               <div className="sources">
                 {m.sources.map((s, j) => {
                   const key = `${i}:${j}`;
                   const open = openSource[key];
+                  const href = githubUrl(github, s);
                   return (
                     <div key={j} className="source">
-                      <button className="source-head" onClick={() => toggleSource(key)}>
-                        <span className="source-caret">{open ? '▾' : '▸'}</span>
-                        {s.relPath}:{s.startLine}-{s.endLine} · score {s.score}
-                      </button>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <button className="source-head" onClick={() => toggleSource(key)}>
+                          <span className="source-caret">{open ? '▾' : '▸'}</span>
+                          {s.relPath}:{s.startLine}-{s.endLine}
+                          {typeof s.score === 'number' ? ` · score ${s.score}` : ''}
+                        </button>
+                        {href && (
+                          <a
+                            href={href}
+                            target="_blank"
+                            rel="noreferrer"
+                            title="Open these lines on GitHub (at the indexed commit)"
+                            style={{ color: 'var(--accent)', fontSize: 12, textDecoration: 'none' }}
+                          >
+                            ↗
+                          </a>
+                        )}
+                      </div>
                       {open && s.preview && (
                         <CodeBlock code={s.preview} language={s.language} title={`${s.relPath} (${s.language})`} />
                       )}
@@ -82,11 +133,10 @@ export default function Chat({ enabled, pendingQuestion, askNonce }) {
           </div>
         ))}
 
-        {loading && (
-          <div className="msg ai">
-            <div className="skeleton skeleton-line" />
-            <div className="skeleton skeleton-line short" />
-            <div className="skeleton skeleton-line" />
+        {loading && messages[messages.length - 1]?.text === '' && (
+          <div className="msg ai" aria-hidden="true">
+            <div className="skeleton" style={{ height: 12, marginBottom: 6 }} />
+            <div className="skeleton" style={{ height: 12, width: '60%' }} />
           </div>
         )}
       </div>

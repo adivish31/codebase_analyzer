@@ -1,4 +1,4 @@
-﻿{
+{
   "name": "cairn-backend",
   "version": "0.1.0",
   "description": "Cairn API: ingestion, chunking, embeddings, vector store, and RAG.",
