@@ -42,14 +42,27 @@ function selectProvider() {
 const provider = selectProvider();
 logger.info(`Embeddings provider: ${provider.name} (dim=${provider.dim})`);
 
+/** Facade-level batch size — small enough for per-batch progress, large enough to stay efficient. */
+const PROGRESS_BATCH = 64;
+
 /**
  * Embed an array of texts into vectors.
  * @param {string[]} texts
+ * @param {(done: number, total: number) => void} [onProgress] fires after each batch — powers the
+ *   SSE ingest progress bar without any provider needing to know about it.
  * @returns {Promise<number[][]>}
  */
-export async function embedTexts(texts) {
+export async function embedTexts(texts, onProgress) {
   if (!Array.isArray(texts) || texts.length === 0) return [];
-  return provider.embed(texts);
+  if (!onProgress) return provider.embed(texts);
+
+  const vectors = [];
+  for (let i = 0; i < texts.length; i += PROGRESS_BATCH) {
+    const batch = texts.slice(i, i + PROGRESS_BATCH);
+    vectors.push(...(await provider.embed(batch)));
+    onProgress(Math.min(i + PROGRESS_BATCH, texts.length), texts.length);
+  }
+  return vectors;
 }
 
 /** Embed a single query string. */

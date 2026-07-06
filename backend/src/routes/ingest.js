@@ -3,97 +3,68 @@ import { Router } from 'express';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import { ApiError } from '../middleware/errorHandler.js';
 import { logger } from '../logger.js';
-import { appState, resetIndex } from '../state.js';
-
-import { ingestSource } from '../services/ingestion.js';
-import { parseDocuments } from '../services/parser.js';
-import { chunkDocuments } from '../services/chunker.js';
-import { embedTexts, embeddingProvider } from '../services/embeddings/index.js';
-import { buildCodeGraph } from '../services/codeGraph.js';
-import { generateRepoWiki } from '../services/repoWiki.js';
+import { runIngestPipeline } from '../services/pipeline.js';
 
 const router = Router();
+
+function requireSource(req) {
+  const source = req.body.source || req.body.path;
+  if (!source) {
+    throw new ApiError(400, 'Provide `source` (GitHub URL) or `path` (local folder).');
+  }
+  return source;
+}
 
 /**
  * POST /api/ingest
  * Body: { "source": "<github url>" }  OR  { "path": "<local folder>" }
- *
- * Full indexing pipeline:
- *   ingest -> parse -> [reset] -> build code graph -> chunk -> embed -> store (memory + RepoWiki DB)
- *   -> generate repo wiki -> persist meta.
- * Replaces any previously-ingested codebase.
+ * Runs the full pipeline and answers once with the final stats. (Kept request/response for
+ * curl-ability and the integration tests; the UI uses /ingest/stream below.)
  */
 router.post(
   '/ingest',
   asyncHandler(async (req, res) => {
-    const source = req.body.source || req.body.path;
-    if (!source) {
-      throw new ApiError(400, 'Provide `source` (GitHub URL) or `path` (local folder).');
-    }
-
-    const startedAt = Date.now();
-
-    // 1. Ingest raw files
-    const { documents, meta } = await ingestSource(source);
-
-    // 2. Parse (language detection + structured symbols)
-    const parsed = parseDocuments(documents);
-
-    // 3. Fresh index (clears in-memory store + both persistence DBs)
-    await resetIndex();
-
-    // 4. Build the code graph (files, symbols, import edges) -> CodeGraph DB
-    const { symbolCount, edgeCount } = await buildCodeGraph(parsed);
-
-    // 5. Chunk into retrievable pieces
-    const chunks = chunkDocuments(parsed);
-
-    // 6. Embed every chunk
-    const vectors = await embedTexts(chunks.map((c) => c.text));
-
-    // 7. Persist chunks (with embeddings) to the RepoWiki DB and register them with the
-    //    retrieval index (no-op for pgvector — the DB rows ARE the index).
-    const records = chunks.map((chunk, i) => ({
-      id: chunk.id,
-      vector: vectors[i],
-      metadata: {
-        relPath: chunk.relPath,
-        language: chunk.language,
-        startLine: chunk.startLine,
-        endLine: chunk.endLine,
-        text: chunk.text,
-      },
-    }));
-    await appState.repoWiki.insertChunks(records);
-    await appState.chunkIndex.addAll(records);
-    await appState.repoWiki.insertFiles(parsed);
-
-    // 8. Curate per-file wiki summaries -> RepoWiki DB
-    const wiki = await generateRepoWiki(parsed);
-
-    // 9. Persist codebase metadata (including WHICH embedding provider produced the vectors —
-    //    a query embedded by a different provider lives in a different vector space, so the
-    //    startup reload warns when the active provider no longer matches the index).
-    appState.codebase = {
-      ...meta,
-      chunkCount: chunks.length,
-      symbolCount,
-      edgeCount,
-      wikiCount: wiki.count,
-      embedding: { provider: embeddingProvider.name, dim: embeddingProvider.dim },
-      durationMs: Date.now() - startedAt,
-    };
-    await appState.repoWiki.saveMeta(appState.codebase);
-
-    logger.info(
-      `Indexed ${chunks.length} chunks, ${symbolCount} symbols, ${edgeCount} edges from ${meta.fileCount} files in ${appState.codebase.durationMs}ms.`
-    );
-
-    res.json({
-      message: 'Codebase ingested and indexed.',
-      codebase: appState.codebase,
-    });
+    const source = requireSource(req);
+    const codebase = await runIngestPipeline(source);
+    res.json({ message: 'Codebase ingested and indexed.', codebase });
   })
 );
+
+/**
+ * POST /api/ingest/stream
+ * Same body, but responds as Server-Sent Events with live pipeline progress:
+ *   event: stage   data: {"stage":"embedding","percent":62,"detail":"64/126 chunks"}
+ *   event: done    data: {"codebase":{...}}
+ *   event: error   data: {"error":"..."}
+ */
+router.post('/ingest/stream', async (req, res) => {
+  let source;
+  try {
+    source = requireSource(req);
+  } catch (err) {
+    return res.status(err.status || 400).json({ error: err.message });
+  }
+
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders?.();
+
+  const send = (event, data) => {
+    res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+  };
+
+  try {
+    const codebase = await runIngestPipeline(source, (stage, percent, detail) => {
+      send('stage', { stage, percent, detail });
+    });
+    send('done', { codebase });
+  } catch (err) {
+    logger.error(`Streamed ingest failed: ${err.message}`);
+    send('error', { error: err.message });
+  } finally {
+    res.end();
+  }
+});
 
 export default router;
