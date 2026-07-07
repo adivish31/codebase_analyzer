@@ -1,124 +1,132 @@
-# Codebase Knowledge AI
+# Cairn
 
-An AI tool that can **explain any concept in a codebase** and **generate diagrams** of how the
-code flows. Point it at a repository; it ingests the code, indexes it for semantic search, and
-answers natural-language questions ("How does authentication work?", "What calls `processPayment`?")
-with grounded explanations and Mermaid diagrams.
+**Ask your codebase a question. Get the exact lines back.**
 
-> Status: **working end-to-end with real AI** (Google Gemini by default when a key is set) and
-> production persistence (managed Postgres via `DATABASE_URL`, or local SQLite). A mock provider
-> still lets everything run with zero API keys — see `docs/concepts/06-llm-provider-abstraction.md`.
+Cairn indexes any GitHub repo or local folder into a searchable vector index plus a code graph of
+every symbol and import — then answers questions in plain language, streamed token-by-token, with
+`file:line` citations that deep-link to GitHub at the indexed commit, and Mermaid diagrams it
+draws itself.
+
+> A cairn is a stack of stones that marks the trail through unfamiliar terrain.
+
+## Measured, not promised
+
+<!-- EVAL:START -->
+_Last run 2026-07-07 · LLM: `groq` · 18 golden questions (`npm run eval`)_
+
+| Metric | Score |
+|--------|-------|
+| Retrieval hit-rate@5 | **83%** |
+| Citation accuracy | **94%** |
+| Keyword coverage | **100%** |
+| Mermaid-valid rate | **100%** |
+| Latency p50 / p95 | **8300ms / 13271ms** |
+<!-- EVAL:END -->
+
+The eval harness (`evals/golden.json` + `backend/scripts/eval.js`) boots the real app, ingests the
+backend's own source, and runs 18 golden questions through the real `/api/ask` pipeline. No mocks,
+no cherry-picking — re-run it yourself.
+
+Two honest caveats: latency includes Groq **free-tier** rate-limit backoff (a paid tier answers in
+1–2s), and the run above used mock (lexical) embeddings — the remaining retrieval misses are
+semantic gaps that a `GEMINI_API_KEY` closes.
 
 ## What it does
 
-1. **Ingest** a GitHub repo (public or private) or local folder → reads source files.
-2. **Parse + chunk** each file into retrievable pieces; extract structured symbols (functions,
-   classes, methods) with line numbers.
-3. **Build relationships** → a **CodeGraph DB** (SQLite) of files, symbols, and import edges.
-4. **Embed + curate** → chunks go into a vector index + **RepoWiki DB** (SQLite) with per-file
-   summary cards. Both databases persist, so the index survives restarts.
-5. **Ask** a question → **hybrid retrieval** (semantic vectors + keyword/symbol/path matching) →
-   an LLM explains the answer, grounded in real code, citing files and the symbols involved.
-6. **Find** structurally → "Where is `processPayment` defined?", "What imports this file?"
-7. **Diagram** the flow → Mermaid architecture / dependency diagrams + a JSON code graph.
+1. **Ingest** — shallow-clones a repo (public, or private with `GITHUB_TOKEN`), filters source
+   files, records the commit SHA for citation deep-links. Live staged progress over SSE.
+2. **Parse + chunk** — extracts symbols (name/kind/line) and splits files into line-aware
+   overlapping chunks.
+3. **Graph** — resolves import edges between files into a **CodeGraph DB**; chunks + vectors and
+   per-file wiki summaries persist in a **RepoWiki DB** (SQLite by default, Postgres via
+   `DATABASE_URL`). The index survives restarts.
+4. **Ask** — hybrid retrieval (cosine similarity re-ranked by path/symbol matches) feeds a
+   streaming LLM constrained to cite its sources or say the context is insufficient. Answers
+   stream over SSE with citations arriving before the first token; repeats hit an LRU cache.
+5. **Explore** — symbol lookup ("where is `processPayment` defined?"), file dependency queries,
+   a browsable repo wiki, and Mermaid architecture/dependency diagrams.
 
-## Architecture (high level)
+## Quick start
 
-```
-Next.js frontend ──HTTP──> Express backend
-(chat · diagrams ·                 │
- code map · wiki)                  ▼
-                       Ingestion → Parser (symbols) ──┬─────────────► CodeGraph DB (SQLite)
-                                                       │               files · symbols · edges
-                                                       ▼
-                                     Chunker → Embeddings → Vector Store (in-memory)
-                                                       │                     │
-                                                       ▼                     │
-                                               RepoWiki DB (SQLite) ◄────────┘
-                                               chunks+vectors · wiki · meta
-                                                       │
-                          Question ─► Hybrid RAG (vectors + symbols) ─► LLM provider
-                                                       │
-                                                       ▼
-                                  Answer + sources + symbol hints + diagrams
+```bash
+# API (port 4000) — runs fully with zero keys (mock AI provider)
+cd backend
+npm install
+npm run dev
+
+# Web (port 3000) — landing page at /, workspace at /workspace
+cd frontend
+npm install
+npm run dev
 ```
 
-Full detail: [`docs/architecture/01-system-overview.md`](docs/architecture/01-system-overview.md)
-and [`docs/architecture/04-codegraph-and-persistence.md`](docs/architecture/04-codegraph-and-persistence.md).
+For real answers, set two env vars in `backend/.env`:
 
-## API endpoints
+```bash
+AI_PROVIDER=groq
+GROQ_API_KEY=gsk_...        # free tier: console.groq.com
+# optional, for real semantic embeddings instead of lexical:
+GEMINI_API_KEY=...          # free tier: aistudio.google.com
+```
+
+Every variable is documented in [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md).
+
+## API
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| `GET` | `/api/health` | Liveness + provider/persistence/index status |
-| `GET` | `/api/status` | Whether a codebase is indexed |
-| `POST` | `/api/ingest` | Index a repo: `{ "source": "<url>" }` or `{ "path": "<folder>" }` |
-| `POST` | `/api/ask` | Hybrid-RAG answer: `{ "question": "..." }` → answer + sources + symbols |
-| `GET` | `/api/files` | Indexed files with chunk counts |
+| `POST` | `/api/ingest` | Index a repo (blocking JSON) |
+| `POST` | `/api/ingest/stream` | Same, with SSE stage progress (0–100%) |
+| `POST` | `/api/ask` | Grounded answer + sources + symbol hints |
+| `POST` | `/api/ask/stream` | SSE: `sources` → `token`× n → `done` |
 | `GET` | `/api/symbols?name=X` | Where a symbol is defined |
 | `GET` | `/api/graph` | File dependency graph (nodes + edges) |
-| `GET` | `/api/file?relPath=Y` | One file's symbols, dependencies, dependents, wiki |
-| `GET` | `/api/wiki` | All per-file summary cards |
-| `GET` | `/api/diagram?type=...` | Mermaid architecture/dependency diagram |
+| `GET` | `/api/file?relPath=Y` | One file: symbols, dependencies, dependents, wiki |
+| `GET` | `/api/wiki` | Per-file summary cards |
+| `GET` | `/api/diagram?type=architecture\|dependency\|module` | Mermaid source |
+| `GET` | `/api/files` · `/api/status` · `/api/health` | Index contents / status / liveness |
 
-Environment variables: [`docs/ENVIRONMENT.md`](docs/ENVIRONMENT.md).
-
-## Repository layout
+## Architecture
 
 ```
-backend/      Express API + the AI pipeline (ingestion, chunking, embeddings, vector store, RAG)
-frontend/     Next.js app (repo input, chat UI, diagram viewer)   [teammate-owned]
-docs/         Interview-ready concept deep-dives + architecture/design docs
-COMMITS.md    Exact git commands to commit each part to GitHub
-SHARE_WITH_TEAMMATE.md   What to hand to the teammate and how
+Next.js 16 frontend ──HTTP/SSE──▶ Express API
+(landing · workspace)                  │
+                        Ingestion ─▶ Parser ─▶ CodeGraph DB   (files · symbols · import edges)
+                             │            │
+                             ▼            ▼
+                        Chunker ─▶ Embeddings ─▶ Vector index (in-memory, rehydrated at boot)
+                                        │
+                                        ▼
+                                  RepoWiki DB   (chunks+vectors · wiki · meta)
+                                        │
+        question ─▶ hybrid retrieval (cosine + symbol/path re-rank) ─▶ LLM (streamed) ─▶
+                    answer + file:line citations + symbol hints
 ```
 
-## Ownership
+Deep-dives: [system overview](docs/architecture/01-system-overview.md) ·
+[request lifecycle](docs/architecture/02-request-lifecycle.md) ·
+[design decisions](docs/architecture/03-design-decisions.md) ·
+[CodeGraph & persistence](docs/architecture/04-codegraph-and-persistence.md)
 
-This is a two-person project. See `SHARE_WITH_TEAMMATE.md` for the full split.
+## Stack
 
-- **Aditya (committed):** scaffold, docs, Express core, ingestion, parsing/chunking, embeddings +
-  vector store, RAG engine.
-- **Teammate (shared as code to edit & commit herself):** diagram-generation service, Next.js frontend.
+- **API** — Express 4, Node ≥ 18, ESM. Six runtime dependencies total.
+- **LLM** — Groq (`llama-3.3-70b-versatile`, streamed) · also OpenAI, Anthropic, Gemini, or a
+  zero-key mock. One env var switches.
+- **Embeddings** — Gemini `gemini-embedding-001` (768-dim, L2-normalised) · OpenAI · mock.
+- **Persistence** — Node's built-in `node:sqlite` (zero external services) or Postgres.
+- **Frontend** — Next.js 16, React 19, Tailwind 4, Mermaid 11, `motion`.
+- **Hardening** — helmet, per-IP rate limits, local-ingest guard, graceful shutdown, 31 tests.
 
-## Quick start (backend)
+## Layout
 
-```bash
-cd backend
-cp .env.example .env       # runs with mock AI by default; add GEMINI_API_KEY + AI_PROVIDER=gemini for real AI
-npm install
-npm run dev        # starts the API on http://localhost:4000
-npm test           # 31 unit + API integration tests (node --test, no extra deps)
+```
+backend/     Express API + pipeline (routes / services / providers / db)
+frontend/    Landing page (/) + workspace (/workspace)
+evals/       Golden question set for the scorecard
+docs/        Architecture, concepts, environment reference, interview prep
 ```
 
-Then try the pipeline with the mock provider:
+## License
 
-```bash
-# 1. Ingest this repo itself
-curl -X POST http://localhost:4000/api/ingest \
-  -H "Content-Type: application/json" \
-  -d '{"path": "../"}'
-
-# 2. Ask a question
-curl -X POST http://localhost:4000/api/ask \
-  -H "Content-Type: application/json" \
-  -d '{"question": "How does the chunker work?"}'
-```
-
-## Tech stack
-
-- **Backend:** Node.js, Express (helmet, per-IP rate limiting, graceful shutdown)
-- **Persistence (swappable driver):** managed **Postgres** when `DATABASE_URL` is set (Supabase/Neon/RDS — survives redeploys), otherwise SQLite via Node's built-in `node:sqlite` — RepoWiki DB + CodeGraph DB either way
-- **Frontend:** Next.js (React)
-- **AI:** provider-agnostic embeddings + LLM interfaces — **Gemini** (`gemini-2.5-flash` + `gemini-embedding-001`, with 429 retry/backoff), OpenAI, Anthropic, or mock (zero keys)
-- **Retrieval:** in-memory cosine vector search + hybrid keyword/symbol re-ranking
-- **Diagrams:** Mermaid
-- **Tests:** `node --test` — unit + API integration (31 tests)
-
-## Production notes
-
-- Set `NODE_ENV=production`: local-path ingestion is disabled (git URLs only) and rate limits apply
-  per client IP (`ASK_RATE_LIMIT`, `INGEST_RATE_LIMIT`; set `TRUST_PROXY=true` behind a proxy).
-- Point `DATABASE_URL` at a managed Postgres to keep the index across restarts **and** redeploys;
-  `GET /api/health` reports the active persistence driver.
-- Full variable reference: [`docs/ENVIRONMENT.md`](docs/ENVIRONMENT.md).
+MIT

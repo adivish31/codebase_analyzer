@@ -1,14 +1,15 @@
-# CLAUDE.md — Codebase Knowledge AI
+# CLAUDE.md — Cairn
 
 Working notes for AI-assisted development. Keep this current when conventions or commands change.
 
 ## What this is
 
-RAG-powered codebase explainer: ingest a GitHub repo or local folder → chunk + embed + build a
-code graph (SQLite/Postgres) → ask questions, get grounded answers with `file:line` citations,
-symbol lookup, per-file wiki, and Mermaid diagrams.
+**Cairn** — RAG-powered codebase explainer: ingest a GitHub repo or local folder → chunk + embed +
+build a code graph (SQLite/Postgres) → ask questions, get **streamed** grounded answers with
+`file:line` citations (deep-linked to GitHub at the indexed commit), symbol lookup, per-file wiki,
+and Mermaid diagrams. Landing page at `/`, workspace at `/workspace`.
 
-## Run / test
+## Run / test / eval
 
 ```bash
 # Backend (Express, port 4000)
@@ -16,8 +17,9 @@ cd backend
 npm install
 npm run dev            # node --watch src/index.js
 npm test               # node --test  (31 tests: unit + full API integration)
+npm run eval           # golden-set scorecard → prints table, rewrites README + frontend metrics
 
-# Frontend (Next.js 14, port 3000)
+# Frontend (Next.js 16 + React 19 + Tailwind 4, port 3000)
 cd frontend
 npm install
 npm run dev
@@ -33,11 +35,20 @@ Full env reference: `docs/ENVIRONMENT.md`.
 - **Persistence:** `node:sqlite` (built-in) by default; Postgres driver when `DATABASE_URL` set.
   Two stores: RepoWiki DB (chunks+vectors, wiki, meta) and CodeGraph DB (files, symbols, edges).
   Store interface is async; drivers live in `backend/src/db/` behind `db/index.js` factory.
-- **Frontend:** Next.js 14 App Router, React 18, **plain CSS** (`app/globals.css`) — no Tailwind,
-  no shadcn, no CSS-in-JS. Mermaid 11 + highlight.js. Thin fetch client in `lib/api.js`.
-- **AI providers:** selected by `AI_PROVIDER` env — `mock` | `openai` | `anthropic` | `gemini`.
-  Facades: `services/embeddings/index.js` and `providers/llm/index.js`. All HTTP via native fetch
-  (no vendor SDKs). Gemini embeddings are 768-dim, L2-normalised client-side, with 429 backoff.
+- **Frontend:** Next.js 16 App Router (Turbopack), React 19, **Tailwind 4** with Cairn design
+  tokens in `app/globals.css` (dark-first, lime `#C6F24E` accent, mono `// 01` labels, hairline
+  borders; a legacy compat layer styles older panel classes). Fonts via `next/font`: Space Grotesk
+  (display) + Inter (body) + JetBrains Mono. Motion primitives hand-ported in `components/motion/`
+  (`motion` package, reduced-motion aware). Mermaid 11 + highlight.js. Fetch + SSE client in
+  `lib/api.js`. `lib/metrics.js` is machine-written by `npm run eval` — don't hand-edit numbers.
+- **AI providers:** selected by `AI_PROVIDER` env — `mock` | `openai` | `anthropic` | `gemini` |
+  `groq`. Facades: `services/embeddings/index.js` and `providers/llm/index.js`. All HTTP via
+  native fetch (no vendor SDKs). Gemini embeddings are 768-dim, L2-normalised client-side, with
+  429 backoff; Groq (`llama-3.3-70b-versatile`) streams tokens and backs off on free-tier TPM 429s.
+  Groq/Anthropic have no embeddings API → embeddings fall back gemini → openai → mock.
+- **Streaming:** `/api/ask/stream` and `/api/ingest/stream` are SSE-over-POST; the shared pipeline
+  lives in `services/pipeline.js`, the answer cache in `services/queryCache.js` (in-process LRU,
+  invalidated by index version — deliberately not Redis).
 
 ## Layout
 
@@ -75,9 +86,11 @@ docs/          architecture/ concepts/ interview-prep/ ENVIRONMENT.md
 
 ## Gotchas
 
-- `backend/.env` currently sets `AI_PROVIDER=gemini` but only `GROQ_API_KEY` is present — ingest
-  with real embeddings will fail until a Gemini key is added or provider changed (Groq provider
-  not yet implemented).
 - `node:sqlite` prints an experimental warning — suppressed in `db/sqlite.js`; don't "fix" it.
 - Vectors persist as JSON in SQLite/PG; search runs in-memory (rehydrated at boot by `initState`).
-- Windows dev box: prefer PowerShell commands; Git Bash lacks `git` in PATH here.
+- Windows dev box: prefer PowerShell commands; Git Bash lacks `git` in PATH here. PowerShell 5.1's
+  `Set-Content -Encoding utf8` writes a BOM that breaks Turbopack's package.json parser — write
+  JSON via Node instead.
+- Postgres tables are migrated with idempotent `ADD COLUMN IF NOT EXISTS` in the pg stores —
+  `CREATE TABLE IF NOT EXISTS` alone won't upgrade an old schema.
+- newer `lucide-react` removed brand icons (`Github` etc.) — use text links.
