@@ -39,12 +39,29 @@ function headers() {
   };
 }
 
+const MAX_RETRIES = 5;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * POST with 429 backoff. Groq's free tier caps tokens-per-minute, and its 429s include the exact
+ * wait ("Please try again in 2.26s") — honour it (plus a little headroom) instead of failing.
+ */
+async function fetchWithBackoff(body) {
+  for (let attempt = 0; ; attempt++) {
+    const res = await fetch(API_URL, { method: 'POST', headers: headers(), body });
+    if (res.status !== 429 || attempt >= MAX_RETRIES) return res;
+
+    const err = await res.json().catch(() => ({}));
+    const msg = err?.error?.message || '';
+    const hinted = Number.parseFloat(msg.match(/try again in ([\d.]+)s/)?.[1]);
+    const retryAfter = Number.parseFloat(res.headers.get('retry-after'));
+    const waitMs = ((Number.isFinite(hinted) ? hinted : retryAfter) || 2 ** attempt) * 1000 + 500;
+    await sleep(Math.min(waitMs, 30_000));
+  }
+}
+
 export async function complete({ system, prompt }) {
-  const res = await fetch(API_URL, {
-    method: 'POST',
-    headers: headers(),
-    body: buildBody({ system, prompt, stream: false }),
-  });
+  const res = await fetchWithBackoff(buildBody({ system, prompt, stream: false }));
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
@@ -61,11 +78,7 @@ export async function complete({ system, prompt }) {
  * each text delta. Resolves with the full text once the stream ends.
  */
 export async function completeStream({ system, prompt, onToken }) {
-  const res = await fetch(API_URL, {
-    method: 'POST',
-    headers: headers(),
-    body: buildBody({ system, prompt, stream: true }),
-  });
+  const res = await fetchWithBackoff(buildBody({ system, prompt, stream: true }));
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
