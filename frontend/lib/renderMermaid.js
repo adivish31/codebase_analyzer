@@ -9,7 +9,17 @@ let mermaidPromise = null;
 async function getMermaid() {
   if (!mermaidPromise) {
     mermaidPromise = import('mermaid').then(({ default: mermaid }) => {
-      mermaid.initialize({ startOnLoad: false, theme: 'default', securityLevel: 'loose' });
+      const dark = typeof document !== 'undefined' && document.documentElement.dataset.theme !== 'light';
+      mermaid.initialize({
+        startOnLoad: false,
+        theme: dark ? 'dark' : 'neutral',
+        securityLevel: 'loose',
+        // Render labels as native SVG <text>, NOT HTML-in-<foreignObject>. foreignObject taints
+        // the canvas during SVG->PNG export ("Tainted canvases may not be exported") and its
+        // content rasterizes blank in SVG-as-image anyway.
+        htmlLabels: false,
+        flowchart: { htmlLabels: false },
+      });
       return mermaid;
     });
   }
@@ -44,28 +54,38 @@ export async function downloadSvgAsPng(svg, filename = 'diagram.png') {
   const clone = svg.cloneNode(true);
   clone.setAttribute('width', width);
   clone.setAttribute('height', height);
+  clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+  clone.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink');
+  // Belt and braces: any <foreignObject> (e.g. a diagram rendered before htmlLabels was
+  // disabled) would taint the canvas and rasterize blank — drop them rather than fail.
+  for (const fo of clone.querySelectorAll('foreignObject')) fo.remove();
+
   const data = new XMLSerializer().serializeToString(clone);
-  const url = URL.createObjectURL(new Blob([data], { type: 'image/svg+xml;charset=utf-8' }));
+  // data: URL (not a blob URL): unambiguously same-origin, so the canvas stays exportable.
+  const url = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(data)}`;
 
   const scale = 2; // render at 2x for a crisp PNG
   const png = await new Promise((resolve, reject) => {
     const img = new Image();
     img.onload = () => {
-      const canvas = document.createElement('canvas');
-      canvas.width = width * scale;
-      canvas.height = height * scale;
-      const ctx = canvas.getContext('2d');
-      ctx.fillStyle = '#ffffff'; // Mermaid text assumes a light background
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      ctx.scale(scale, scale);
-      ctx.drawImage(img, 0, 0);
-      URL.revokeObjectURL(url);
-      canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error('PNG encoding failed.'))), 'image/png');
+      try {
+        const canvas = document.createElement('canvas');
+        canvas.width = width * scale;
+        canvas.height = height * scale;
+        const ctx = canvas.getContext('2d');
+        // Match the theme the diagram was rendered with — dark-theme diagrams have light text,
+        // so a white background would make the export unreadable (and vice versa).
+        const dark = document.documentElement.dataset.theme !== 'light';
+        ctx.fillStyle = dark ? '#0b0b0f' : '#ffffff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.scale(scale, scale);
+        ctx.drawImage(img, 0, 0);
+        canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error('PNG encoding failed.'))), 'image/png');
+      } catch (err) {
+        reject(err);
+      }
     };
-    img.onerror = () => {
-      URL.revokeObjectURL(url);
-      reject(new Error('Could not rasterize the diagram.'));
-    };
+    img.onerror = () => reject(new Error('Could not rasterize the diagram.'));
     img.src = url;
   });
 
