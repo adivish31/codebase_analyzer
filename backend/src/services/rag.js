@@ -44,6 +44,14 @@ function keywordsOf(question) {
   ];
 }
 
+/**
+ * Light stemming so morphology doesn't break path matching: "cached" should still hit
+ * queryCache.js, "embedded" should hit embeddings/. Trims common suffixes down to a stem.
+ */
+function stem(word) {
+  return word.replace(/(ing|ed|es|s)$/, '');
+}
+
 /** Keyword bonus for one candidate: matches in the path weigh more than matches in the body. */
 function keywordBonus(meta, keywords) {
   if (keywords.length === 0) return 0;
@@ -51,7 +59,8 @@ function keywordBonus(meta, keywords) {
   const text = meta.text.toLowerCase();
   let bonus = 0;
   for (const kw of keywords) {
-    if (path.includes(kw)) bonus += 0.15; // strong signal: filename/dir matches the topic
+    const st = stem(kw);
+    if (path.includes(kw) || (st.length > 3 && path.includes(st))) bonus += 0.15; // filename/dir matches the topic
     if (text.includes(kw)) bonus += 0.03; // weaker signal: appears somewhere in the chunk
   }
   return Math.min(bonus, 0.6); // cap so lexical never fully overrides semantic
@@ -92,8 +101,9 @@ async function retrieveContext(question, topK) {
   const queryVector = await embedQuery(question);
 
   // 2. Retrieve candidates (in-memory or pgvector, depending on the driver). Over-fetch when
-  //    hybrid so re-ranking has room to work.
-  const overFetch = config.retrieval.hybrid ? topK * 4 : topK;
+  //    hybrid so re-ranking has room to work — 8× measured better than 4× on the golden set
+  //    (path-boosted chunks often sit just past the top-20).
+  const overFetch = config.retrieval.hybrid ? topK * 8 : topK;
   let results = await appState.chunkIndex.search(queryVector, overFetch);
 
   // 3. Hybrid re-rank: blend semantic score with keyword/path overlap.
