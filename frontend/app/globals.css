@@ -49,11 +49,21 @@
   --color-accent-dim: var(--accent-dim);
   --color-danger: var(--danger);
 
-  --font-display: var(--font-space-grotesk), ui-sans-serif, system-ui, sans-serif;
+  --radius-base: var(--radius);
+}
+
+/* Font stacks as plain :root custom properties — they override Tailwind's --font-sans/--font-mono
+   defaults at runtime and resolve the next/font variables (--font-inter etc.) set on <body>.
+   Declared after the Tailwind import, so these win the cascade. */
+:root {
   --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--font-jetbrains), ui-monospace, 'Cascadia Code', monospace;
+  --font-display: var(--font-space-grotesk), ui-sans-serif, system-ui, sans-serif;
+}
 
-  --radius-base: var(--radius);
+/* Display face for big headings (Tailwind has no `font-display` utility of its own) */
+.font-display {
+  font-family: var(--font-display);
 }
 
 /* ---------------------------------------------------------------------------
@@ -101,11 +111,6 @@ body {
 }
 .hairline-b {
   border-bottom: 1px solid var(--border);
-}
-
-/* Display face for big headings */
-.font-display {
-  font-family: var(--font-display);
 }
 
 /* ---------------------------------------------------------------------------

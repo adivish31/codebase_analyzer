@@ -29,8 +29,14 @@ export const metadata = {
 
 export default function RootLayout({ children }) {
   return (
-    <html lang="en" suppressHydrationWarning>
-      <body className={`${spaceGrotesk.variable} ${inter.variable} ${jetbrains.variable}`}>
+    // Font variables go on <html> so :root-level custom properties (--font-display etc.) can
+    // reference them — var() chains resolve at the declaring element, not the usage site.
+    <html
+      lang="en"
+      suppressHydrationWarning
+      className={`${spaceGrotesk.variable} ${inter.variable} ${jetbrains.variable}`}
+    >
+      <body>
         {/* Apply the saved theme before hydration so light-mode users see no dark flash. */}
         <Script id="cairn-theme" strategy="beforeInteractive">
           {`try{var t=localStorage.getItem('cairn-theme');if(t==='light')document.documentElement.dataset.theme='light'}catch(e){}`}
