@@ -33,7 +33,7 @@ export default function Workspace() {
       <header className="hairline-b flex items-center justify-between px-6 py-3">
         <div className="flex items-baseline gap-3">
           <Link href="/" className="font-display text-[17px] font-semibold tracking-tight text-ink">
-            Cairn
+            RepoLens
           </Link>
           <span className="label-mono">workspace</span>
         </div>

@@ -1,13 +1,13 @@
-# Cairn
+# RepoLens
 
 **Ask your codebase a question. Get the exact lines back.**
 
-Cairn indexes any GitHub repo or local folder into a searchable vector index plus a code graph of
-every symbol and import — then answers questions in plain language, streamed token-by-token, with
-`file:line` citations that deep-link to GitHub at the indexed commit, and Mermaid diagrams it
+RepoLens indexes any GitHub repo or local folder into a searchable vector index plus a code graph
+of every symbol and import — then answers questions in plain language, streamed token-by-token,
+with `file:line` citations that deep-link to GitHub at the indexed commit, and Mermaid diagrams it
 draws itself.
 
-> A cairn is a stack of stones that marks the trail through unfamiliar terrain.
+> A lens brings a large, blurry codebase into sharp, readable focus.
 
 ## Measured, not promised
 

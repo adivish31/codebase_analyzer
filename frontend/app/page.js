@@ -10,7 +10,7 @@ import { METRICS } from '../lib/metrics';
 const REPO_URL = 'https://github.com/adivish31/codebase_analyzer';
 
 export const metadata = {
-  title: 'Cairn — ask your codebase for directions',
+  title: 'RepoLens — bring any codebase into focus',
 };
 
 export default function Landing() {
@@ -20,7 +20,7 @@ export default function Landing() {
       <nav className="hairline-b sticky top-0 z-40 bg-canvas/90 backdrop-blur-sm">
         <div className="mx-auto flex max-w-[1160px] items-center justify-between px-6 py-3.5">
           <div className="flex items-baseline gap-3">
-            <span className="font-display text-lg font-semibold tracking-tight">Cairn</span>
+            <span className="font-display text-lg font-semibold tracking-tight">RepoLens</span>
             <span className="label-mono hidden sm:inline">codebase intelligence</span>
           </div>
           <div className="flex items-center gap-5">
@@ -63,7 +63,7 @@ export default function Landing() {
               </span>
             </h1>
             <p className="mt-6 max-w-[52ch] text-[15px] leading-relaxed text-muted">
-              Cairn clones a repo, chunks it into a searchable vector index, and builds a code
+              RepoLens clones a repo, chunks it into a searchable vector index, and builds a code
               graph of every symbol and import. Then it answers in plain language — streamed,
               with <span className="font-mono text-[13px] text-ink">file:line</span> citations
               and diagrams it draws itself.
@@ -226,7 +226,7 @@ export default function Landing() {
       {/* ───────────────────────── footer ───────────────────────── */}
       <footer className="hairline-t">
         <div className="mx-auto flex max-w-[1160px] flex-wrap items-center justify-between gap-4 px-6 py-8">
-          <p className="label-mono">cairn — built to be read</p>
+          <p className="label-mono">repolens — built to be read</p>
           <div className="flex items-center gap-5 text-[13px] text-muted">
             <a href={REPO_URL} target="_blank" rel="noreferrer" className="transition-colors hover:text-ink">
               GitHub

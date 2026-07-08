@@ -22,7 +22,7 @@ const jetbrains = JetBrains_Mono({
 });
 
 export const metadata = {
-  title: 'Cairn - ask your codebase for directions',
+  title: 'RepoLens - bring any codebase into focus',
   description:
     'Index any repo. Ask a question. Get a streamed answer grounded in the exact files and lines, with a live dependency graph and Mermaid diagrams.',
 };
@@ -38,8 +38,8 @@ export default function RootLayout({ children }) {
     >
       <body>
         {/* Apply the saved theme before hydration so light-mode users see no dark flash. */}
-        <Script id="cairn-theme" strategy="beforeInteractive">
-          {`try{var t=localStorage.getItem('cairn-theme');if(t==='light')document.documentElement.dataset.theme='light'}catch(e){}`}
+        <Script id="repolens-theme" strategy="beforeInteractive">
+          {`try{var t=localStorage.getItem('repolens-theme');if(t==='light')document.documentElement.dataset.theme='light'}catch(e){}`}
         </Script>
         {children}
       </body>

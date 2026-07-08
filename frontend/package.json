@@ -1,8 +1,8 @@
 {
-  "name": "cairn-frontend",
+  "name": "repolens-frontend",
   "version": "0.1.0",
   "private": true,
-  "description": "Cairn frontend: landing page + workspace (chat, graph, diagrams).",
+  "description": "RepoLens frontend: landing page + workspace (chat, graph, diagrams).",
   "scripts": {
     "dev": "next dev",
     "build": "next build",

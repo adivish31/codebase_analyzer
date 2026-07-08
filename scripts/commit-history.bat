@@ -1,6 +1,6 @@
 @echo off
 REM =============================================================================
-REM  Codebase Knowledge AI - incremental commit history (Windows cmd.exe)
+REM  RepoLens - incremental commit history (Windows cmd.exe)
 REM
 REM  Prefer the PowerShell version (commit-history.ps1) which spreads commits
 REM  across realistic past dates. This .bat version commits everything now

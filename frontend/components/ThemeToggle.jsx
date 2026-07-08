@@ -19,7 +19,7 @@ export default function ThemeToggle() {
       delete document.documentElement.dataset.theme;
     }
     try {
-      localStorage.setItem('cairn-theme', next);
+      localStorage.setItem('repolens-theme', next);
     } catch {}
   }
 

@@ -2,7 +2,7 @@
 
 ## What the system does
 
-Codebase Knowledge AI takes a repository and lets a user (a) ask natural-language questions about
+RepoLens takes a repository and lets a user (a) ask natural-language questions about
 the code and get answers grounded in the actual source, and (b) view diagrams of the code's
 structure. It is a **RAG application** (Retrieval-Augmented Generation) specialised for source code,
 plus a diagram generator.

@@ -10,7 +10,7 @@ import { closeState } from './state.js';
 async function main() {
   const app = await createApp();
   const server = app.listen(config.port, () => {
-    logger.info(`Codebase Knowledge AI backend listening on http://localhost:${config.port}`);
+    logger.info(`RepoLens backend listening on http://localhost:${config.port}`);
     logger.info(`AI provider: ${config.ai.provider}`);
   });
 

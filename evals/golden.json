@@ -1,5 +1,5 @@
 {
-  "description": "Golden question set for the Cairn backend indexed against its own source (backend/src). Each entry lists the file(s) a correct retrieval must surface in the top-K sources, and keywords a correct answer should mention.",
+  "description": "Golden question set for the RepoLens backend indexed against its own source (backend/src). Each entry lists the file(s) a correct retrieval must surface in the top-K sources, and keywords a correct answer should mention.",
   "source": "./src",
   "questions": [
     {

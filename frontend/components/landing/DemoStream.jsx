@@ -97,7 +97,7 @@ export default function DemoStream() {
     >
       {/* window chrome */}
       <div className="flex items-center justify-between border-b border-line px-4 py-2.5">
-        <span className="label-mono">cairn · workspace</span>
+        <span className="label-mono">repolens · workspace</span>
         <span className="flex gap-1.5">
           <i className="h-2 w-2 rounded-full bg-line-strong" />
           <i className="h-2 w-2 rounded-full bg-line-strong" />

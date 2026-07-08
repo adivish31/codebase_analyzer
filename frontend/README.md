@@ -1,4 +1,4 @@
-# Frontend — Codebase Knowledge AI  *(teammate-owned)*
+# Frontend — RepoLens  *(teammate-owned)*
 
 Next.js (App Router) UI: ingest a repo, ask questions, and view Mermaid diagrams.
 

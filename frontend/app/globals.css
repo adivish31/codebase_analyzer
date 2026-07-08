@@ -1,7 +1,7 @@
 @import 'tailwindcss';
 
 /* ============================================================================
-   Cairn design tokens — dark-first, one accent, hairline borders.
+   RepoLens design tokens — dark-first, one accent, hairline borders.
    Signature details: mono section labels (`// 01 — INDEX`), 1px borders over
    shadows, a fine dot-grid on at most ONE section per page.
    ========================================================================== */

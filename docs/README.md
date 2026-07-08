@@ -1,4 +1,4 @@
-# Documentation — Codebase Knowledge AI
+# Documentation — RepoLens
 
 This documentation is written to do double duty: explain how the project works **and** teach the
 underlying concepts in interview-ready depth. Each concept doc ends with a **"Interview Q&A"**

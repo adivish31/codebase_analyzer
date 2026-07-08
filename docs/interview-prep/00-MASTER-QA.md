@@ -1,4 +1,4 @@
-# Master Interview Q&A — Codebase Knowledge AI
+# Master Interview Q&A — RepoLens
 
 A single-file reference for 60+ questions organised by topic. For deep explanations, follow
 the links to the topic-specific files. Use this as a self-quiz the night before an interview.

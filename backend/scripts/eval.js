@@ -74,7 +74,7 @@ const post = (p, body) =>
     return j;
   });
 
-console.log(`\n┌─ Cairn eval · ${golden.questions.length} golden questions`);
+console.log(`\n┌─ RepoLens eval · ${golden.questions.length} golden questions`);
 console.log(`│  source: ${golden.source}`);
 
 const t0 = Date.now();

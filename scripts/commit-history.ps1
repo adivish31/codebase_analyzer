@@ -1,5 +1,5 @@
 # =============================================================================
-#  Codebase Knowledge AI  -  Incremental commit history (PowerShell / Windows)
+#  RepoLens  -  Incremental commit history (PowerShell / Windows)
 #
 #  Usage:
 #    cd "F:\CODEBASE_ANALYSER\Codebase knowledge AI"

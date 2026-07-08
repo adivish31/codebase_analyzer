@@ -1,4 +1,4 @@
-# Handoff — Codebase Knowledge AI
+# Handoff — RepoLens
 
 Hi! Here's everything you need to start contributing to this project.
 

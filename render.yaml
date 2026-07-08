@@ -1,9 +1,9 @@
-# Render blueprint — deploys the Cairn API. (Railway works too: point it at backend/ and it
+# Render blueprint — deploys the RepoLens API. (Railway works too: point it at backend/ and it
 # auto-detects Node; set the same env vars.) The frontend deploys separately on Vercel with
 # root directory = frontend/ and NEXT_PUBLIC_API_BASE = this service's URL.
 services:
   - type: web
-    name: cairn-api
+    name: repolens-api
     runtime: node
     rootDir: backend
     buildCommand: npm install

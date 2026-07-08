@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  Codebase Knowledge AI - incremental commit history (macOS / Linux / Git Bash)
+#  RepoLens - incremental commit history (macOS / Linux / Git Bash)
 #
 #  Usage:
 #    bash scripts/commit-history.sh            # commits at current time

@@ -1,4 +1,4 @@
-# Commit guide — Codebase Knowledge AI
+# Commit guide — RepoLens
 
 Remote: `https://github.com/adivish31/codebase_analyzer.git`
 

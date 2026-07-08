@@ -1,10 +1,10 @@
-# CLAUDE.md — Cairn
+# CLAUDE.md — RepoLens
 
 Working notes for AI-assisted development. Keep this current when conventions or commands change.
 
 ## What this is
 
-**Cairn** — RAG-powered codebase explainer: ingest a GitHub repo or local folder → chunk + embed +
+**RepoLens** — RAG-powered codebase explainer: ingest a GitHub repo or local folder → chunk + embed +
 build a code graph (SQLite/Postgres) → ask questions, get **streamed** grounded answers with
 `file:line` citations (deep-linked to GitHub at the indexed commit), symbol lookup, per-file wiki,
 and Mermaid diagrams. Landing page at `/`, workspace at `/workspace`.
@@ -35,7 +35,7 @@ Full env reference: `docs/ENVIRONMENT.md`.
 - **Persistence:** `node:sqlite` (built-in) by default; Postgres driver when `DATABASE_URL` set.
   Two stores: RepoWiki DB (chunks+vectors, wiki, meta) and CodeGraph DB (files, symbols, edges).
   Store interface is async; drivers live in `backend/src/db/` behind `db/index.js` factory.
-- **Frontend:** Next.js 16 App Router (Turbopack), React 19, **Tailwind 4** with Cairn design
+- **Frontend:** Next.js 16 App Router (Turbopack), React 19, **Tailwind 4** with RepoLens design
   tokens in `app/globals.css` (dark-first, lime `#C6F24E` accent, mono `// 01` labels, hairline
   borders; a legacy compat layer styles older panel classes). Fonts via `next/font`: Space Grotesk
   (display) + Inter (body) + JetBrains Mono. Motion primitives hand-ported in `components/motion/`
